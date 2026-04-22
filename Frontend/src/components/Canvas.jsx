@@ -166,6 +166,33 @@ const Canvas = ({ theme }) => {
             </Group>
           ))}
 
+          {/* ── Backend Room Boundaries ── */}
+          {useStore.getState().backendRooms?.map(br => {
+            if (!br.boundary || br.boundary.length < 3) return null;
+            // Map points to canvas. For now, assume global coordinates or find first sensor in room
+            // In a real app, you'd have a mapping between backend 'meters' and frontend 'pixels'
+            // For this integration, we'll draw them near the logical room bounds.
+            const lr = logicalRooms.find(l => l.id === br.roomId || l.name === br.name);
+            if (!lr) return null;
+            
+            const points = br.boundary.flatMap(p => [
+              lr.bounds.x + p.x * 100, 
+              lr.bounds.y + p.y * 100
+            ]);
+
+            return (
+              <Line
+                key={`bound-${br.roomId}`}
+                points={points}
+                closed
+                stroke="#4F46E5"
+                strokeWidth={2}
+                fill="rgba(79, 70, 229, 0.05)"
+                dash={[10, 5]}
+              />
+            );
+          })}
+
           {/* ── Sensor nodes ── */}
           {sensors.map(node => {
             const isSelected = selectedIds.includes(node.id);
@@ -176,44 +203,77 @@ const Canvas = ({ theme }) => {
               ? node.assignedDeviceId.slice(-5)
               : node.status === 'DISCONNECTED' ? 'Offline' : 'Unbound';
 
+            // Real-time data from monitoring state
+            const roomData = node.logicalRoomId ? monitoringState[node.logicalRoomId] : null;
+            const deviceData = roomData?.backendData;
+
             return (
-              <Group
-                key={node.id}
-                x={node.x} y={node.y}
-                draggable={designerState === 'EDIT' && !lockedIds.includes(node.id)}
-                onClick={e => { e.cancelBubble = true; if (designerState === 'EDIT') selectItem(node.id, e.evt.shiftKey); }}
-                onTap={e    => { e.cancelBubble = true; if (designerState === 'EDIT') selectItem(node.id, e.evt.shiftKey); }}
-                onDragEnd={e => updateSensor(node.id, { x: e.target.x(), y: e.target.y() })}
-              >
-                {/* Selection ring */}
-                {isSelected && designerState === 'EDIT' && (
-                  <Circle radius={20} stroke={lockedIds.includes(node.id) ? '#94a3b8' : '#4F84FF'} strokeWidth={2} dash={[4, 4]} />
+              <Group key={node.id}>
+                {/* Movement Path */}
+                {deviceData?.processed?.movementPath?.length > 1 && (
+                  <Line
+                    points={deviceData.processed.movementPath.flatMap(p => [
+                      node.x + p.x * 100,
+                      node.y + p.y * 100
+                    ])}
+                    stroke={color}
+                    strokeWidth={2}
+                    opacity={0.4}
+                    tension={0.5}
+                  />
                 )}
-                {/* Outer glow ring for active nodes */}
-                {isGlowing && (
-                  <Circle radius={16} fill={`${color}22`} />
-                )}
-                {/* Main circle */}
-                <Circle
-                  radius={12}
-                  fill={color}
-                  shadowColor={color}
-                  shadowBlur={isGlowing ? 12 : 4}
-                  shadowOpacity={isGlowing ? 0.6 : 0.2}
-                />
-                {/* Inner dot — shows DISCONNECTED as outline-only */}
-                {node.status === 'DISCONNECTED' && (
-                  <Circle radius={5} stroke={color} strokeWidth={1.5} />
-                )}
-                {/* Label below node */}
-                <Text
-                  text={label}
-                  y={16} x={-28} width={56}
-                  align="center"
-                  fill={node.status === 'UNBOUND' ? '#94A3B8' : (theme === 'dark' ? '#F8FAFC' : '#1E293B')}
-                  fontSize={10}
-                  fontFamily="monospace"
-                />
+
+                {/* Filtered Targets */}
+                {deviceData?.processed?.filteredTargets?.map((t, i) => (
+                  <Circle
+                    key={`target-${node.id}-${i}`}
+                    x={node.x + t.x * 100}
+                    y={node.y + t.y * 100}
+                    radius={4}
+                    fill={color}
+                    opacity={0.8}
+                    shadowBlur={5}
+                    shadowColor={color}
+                  />
+                ))}
+
+                <Group
+                  x={node.x} y={node.y}
+                  draggable={designerState === 'EDIT' && !lockedIds.includes(node.id)}
+                  onClick={e => { e.cancelBubble = true; if (designerState === 'EDIT') selectItem(node.id, e.evt.shiftKey); }}
+                  onTap={e    => { e.cancelBubble = true; if (designerState === 'EDIT') selectItem(node.id, e.evt.shiftKey); }}
+                  onDragEnd={e => updateSensor(node.id, { x: e.target.x(), y: e.target.y() })}
+                >
+                  {/* Selection ring */}
+                  {isSelected && designerState === 'EDIT' && (
+                    <Circle radius={20} stroke={lockedIds.includes(node.id) ? '#94a3b8' : '#4F84FF'} strokeWidth={2} dash={[4, 4]} />
+                  )}
+                  {/* Outer glow ring for active nodes */}
+                  {isGlowing && (
+                    <Circle radius={16} fill={`${color}22`} />
+                  )}
+                  {/* Main circle */}
+                  <Circle
+                    radius={12}
+                    fill={color}
+                    shadowColor={color}
+                    shadowBlur={isGlowing ? 12 : 4}
+                    shadowOpacity={isGlowing ? 0.6 : 0.2}
+                  />
+                  {/* Inner dot — shows DISCONNECTED as outline-only */}
+                  {node.status === 'DISCONNECTED' && (
+                    <Circle radius={5} stroke={color} strokeWidth={1.5} />
+                  )}
+                  {/* Label below node */}
+                  <Text
+                    text={label}
+                    y={16} x={-28} width={56}
+                    align="center"
+                    fill={node.status === 'UNBOUND' ? '#94A3B8' : (theme === 'dark' ? '#F8FAFC' : '#1E293B')}
+                    fontSize={10}
+                    fontFamily="monospace"
+                  />
+                </Group>
               </Group>
             );
           })}

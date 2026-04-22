@@ -143,7 +143,7 @@ const useStore = create((set, get) => ({
    * discoveredDevices — pool of detected devices (sim or real)
    * Shape: { id, deviceId, connectionStatus, assignedRoomId, assignedNodeId, scannedAt }
    */
-  discoveredDevices: (persisted.discoveredDevices ?? getDevices()).map(migrateDevice),
+  discoveredDevices: (persisted.discoveredDevices ?? []).map(migrateDevice),
 
   // ── Monitoring ─────────────────────────────────────────────────────────────
   /**
@@ -186,19 +186,121 @@ const useStore = create((set, get) => ({
   // ── Device pool ────────────────────────────────────────────────
   /**
    * refreshDevicePool — reload available devices.
-   * Simulation: regenerates mock device list.
-   * Production: trigger a new device query from your gateway / API,
-   *             then call autoBindDevices() once new devices arrive.
    */
-  refreshDevicePool() {
+  refreshDevicePool: async () => {
     const s = get();
-    // Keep already-assigned devices; replace the unassigned pool
+    const fresh = await getDevices();
     const assigned = s.discoveredDevices.filter(d => d.assignedNodeId !== null);
-    const fresh    = getDevices().map(migrateDevice);
-    const next     = { discoveredDevices: [...assigned, ...fresh] };
+    
+    const nextDevices = fresh.map(f => {
+      const existing = s.discoveredDevices.find(d => d.deviceId === f.deviceId);
+      if (existing && existing.assignedNodeId) {
+        return { ...f, assignedNodeId: existing.assignedNodeId, assignedRoomId: existing.assignedRoomId };
+      }
+      return f;
+    });
+    
+    // Add any assigned devices that didn't come in the fresh pool
+    for (const a of assigned) {
+      if (!nextDevices.find(d => d.deviceId === a.deviceId)) {
+        nextDevices.push(a);
+      }
+    }
+    
+    const next = { discoveredDevices: nextDevices };
     set(next);
     persistState({ ...s, ...next });
     get().autoBindDevices();
+  },
+
+  updateDeviceInStore: (device) => {
+    const s = get();
+    const now = Date.now();
+    let updatedDevices = [...s.discoveredDevices];
+    let updatedSensors = [...s.sensors];
+    let newMonitoring = { ...s.monitoringState };
+
+    const existingDeviceIdx = updatedDevices.findIndex(d => d.deviceId === device.deviceId);
+
+    let assignedNodeId = null;
+    let assignedRoomId = null;
+
+    if (existingDeviceIdx >= 0) {
+      assignedNodeId = updatedDevices[existingDeviceIdx].assignedNodeId;
+      assignedRoomId = updatedDevices[existingDeviceIdx].assignedRoomId;
+      updatedDevices[existingDeviceIdx] = {
+        ...updatedDevices[existingDeviceIdx],
+        ...device,
+        connectionStatus: device.status === 'active' ? 'CONNECTED' : 'DISCONNECTED',
+      };
+    } else {
+      // New device! Add to pool
+      const newDevice = {
+        ...device,
+        id: device._id || `disc-${now}-${Math.random()}`,
+        connectionStatus: device.status === 'active' ? 'CONNECTED' : 'DISCONNECTED',
+        assignedNodeId: null,
+        assignedRoomId: null,
+        scannedAt: now,
+      };
+      
+      // Auto-bind logic for NEW device only
+      const candidateNodes = updatedSensors
+        .filter(n => n.status === 'UNBOUND')
+        .sort((a, b) => a.createdAt - b.createdAt);
+      
+      if (candidateNodes.length > 0) {
+        const targetNode = candidateNodes[0];
+        assignedNodeId = targetNode.id;
+        assignedRoomId = targetNode.logicalRoomId;
+        newDevice.assignedNodeId = assignedNodeId;
+        newDevice.assignedRoomId = assignedRoomId;
+
+        updatedSensors = updatedSensors.map(n => 
+          n.id === targetNode.id 
+            ? { ...n, assignedDeviceId: device.deviceId, status: 'CONNECTED' } 
+            : n
+        );
+      }
+      updatedDevices.push(newDevice);
+    }
+
+    // Update monitoring state if assigned
+    if (assignedRoomId && assignedNodeId) {
+      const roomStatus = device.status === 'active' ? 'NORMAL' : 'INACTIVE';
+      const logs = newMonitoring[assignedRoomId]?.logs || [];
+
+      newMonitoring[assignedRoomId] = {
+        ...(newMonitoring[assignedRoomId] || {}),
+        status: roomStatus,
+        connectionStatus: device.status === 'active' ? 'CONNECTED' : 'DISCONNECTED',
+        deviceId: device.deviceId,
+        lastActive: device.lastActive ? new Date(device.lastActive).getTime() : now,
+        lastSeen: device.lastSeen ? new Date(device.lastSeen).getTime() : now,
+        logs: logs,
+        backendData: device // store raw backend data here for Canvas/UI
+      };
+
+      updatedSensors = updatedSensors.map(n => 
+        n.id === assignedNodeId 
+          ? { ...n, status: roomStatus === 'NORMAL' ? 'CONNECTED' : roomStatus }
+          : n
+      );
+    }
+
+    set({ discoveredDevices: updatedDevices, sensors: updatedSensors, monitoringState: newMonitoring });
+  },
+
+  addAlertToStore: (alert) => {
+    set(s => ({
+      alerts: [{
+        id: alert._id || `alert-${Date.now()}`,
+        message: alert.message,
+        timestamp: new Date(alert.createdAt || Date.now()).getTime(),
+        acknowledged: false,
+        deviceId: alert.deviceId,
+      }, ...s.alerts]
+    }));
   },
 
   // ── Sensor node placement & binding ───────────────────────────────────────
