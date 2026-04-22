@@ -46,6 +46,11 @@ const deviceSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    gatewayId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     roomId: {
       type: String,
       trim: true,
@@ -61,8 +66,24 @@ const deviceSchema = new mongoose.Schema(
       default: () => ({}),
     },
     processed: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      filteredTargets: {
+        type: [radarTargetSchema],
+        default: [],
+      },
+      movementPath: {
+        type: [
+          {
+            x: Number,
+            y: Number,
+            timestamp: Date,
+          },
+        ],
+        default: [],
+      },
+      fallDetected: {
+        type: Boolean,
+        default: false,
+      },
     },
     lastSeen: {
       type: Date,

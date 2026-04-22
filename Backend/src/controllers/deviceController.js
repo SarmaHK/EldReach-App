@@ -6,16 +6,16 @@ const deviceService = require('../services/deviceService');
  */
 const upsertDevice = async (req, res) => {
   try {
-    const { deviceId, status, sensors } = req.body;
+    const { nodeId, gatewayId, roomId, sensors } = req.body;
 
-    if (!deviceId) {
+    if (!nodeId) {
       return res.status(400).json({
         status: 'error',
-        message: 'deviceId is required',
+        message: 'nodeId is required',
       });
     }
 
-    const device = await deviceService.updateDeviceData({ deviceId, status, sensors });
+    const device = await deviceService.updateDevice(req.body);
 
     res.status(200).json({
       status: 'success',

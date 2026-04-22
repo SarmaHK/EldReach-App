@@ -11,29 +11,32 @@ const INACTIVITY_LIMIT = 60 * 1000;
  * Create or update a device with sensor data,
  * then evaluate inactivity state.
  */
-const updateDeviceData = async ({ deviceId, status, sensors }) => {
+const updateDevice = async (data) => {
+  const { nodeId, gatewayId, roomId, sensors } = data;
   const now = new Date();
 
   // Fetch the current device state BEFORE updating (to detect state changes)
-  const previousDevice = await Device.findOne({ deviceId });
+  const previousDevice = await Device.findOne({ deviceId: nodeId });
   const previousStatus = previousDevice ? previousDevice.status : null;
 
   // Build the update fields
   const updateFields = {
     lastSeen: now,
+    status: 'active', // Device is actively sending data
+    lastActive: now,
   };
 
-  if (status) {
-    updateFields.status = status;
+  if (gatewayId) {
+    updateFields.gatewayId = gatewayId;
+  }
+
+  if (roomId) {
+    updateFields.roomId = roomId;
   }
 
   if (sensors) {
+    // Overwrite the sensors with the latest snapshot. We do not append targets.
     updateFields.sensors = sensors;
-  }
-
-  // Update lastActive only when device reports active status
-  if (status === 'active') {
-    updateFields.lastActive = now;
   }
 
   // Process sensor data (intelligence layer)
@@ -51,7 +54,7 @@ const updateDeviceData = async ({ deviceId, status, sensors }) => {
 
     if (processed.fallDetected) {
       await createAlert({
-        deviceId,
+        deviceId: nodeId,
         type: 'fall',
         message: 'Possible fall detected',
       });
@@ -60,8 +63,11 @@ const updateDeviceData = async ({ deviceId, status, sensors }) => {
 
   // Upsert the device
   let device = await Device.findOneAndUpdate(
-    { deviceId },
-    { $set: updateFields },
+    { deviceId: nodeId },
+    { 
+      $set: updateFields,
+      $setOnInsert: { deviceId: nodeId }
+    },
     {
       new: true,
       upsert: true,
@@ -143,6 +149,6 @@ const getAllDevices = async () => {
 };
 
 module.exports = {
-  updateDeviceData,
+  updateDevice,
   getAllDevices,
 };
