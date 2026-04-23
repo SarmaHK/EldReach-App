@@ -25,6 +25,8 @@ const io = new Server(server, {
 socketService.setIO(io);
 
 // Initialize MQTT Client
+
+
 if (process.env.ENABLE_MQTT === "true") {
   require("./mqtt/mqttClient");
 }

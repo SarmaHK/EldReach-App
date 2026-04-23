@@ -181,9 +181,11 @@ const Row = ({ label, value }) => (
 );
 
 /* ─── System Status Hero ─────────────────────────────────────────────────── */
-const SystemHero = ({ status, gatewayStats, alertCount, logicalRooms, sensors }) => {
+const SystemHero = ({ status, gatewayStats, alertCount, logicalRooms, sensors, discoveredDevices }) => {
   const boundSensors = sensors.filter(n => n.assignedDeviceId).length;
   const totalSensors = sensors.length;
+  const totalDevices = discoveredDevices?.length || 0;
+  const activeDevices = discoveredDevices?.filter(d => d.connectionStatus === 'CONNECTED').length || 0;
 
   const statusMsg = status === 'HEALTHY'  ? 'Everything looks good.'
                   : status === 'DEGRADED' ? 'Some sensors need attention.'
@@ -221,9 +223,10 @@ const SystemHero = ({ status, gatewayStats, alertCount, logicalRooms, sensors })
       </div>
 
       {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.6rem' }}>
         <StatChip label="Rooms" value={logicalRooms.length} color={C.brand} />
-        <StatChip label="Sensors" value={`${boundSensors}/${totalSensors}`} color={C.active} />
+        <StatChip label="Devices" value={totalDevices} color={C.active} />
+        <StatChip label="Active" value={activeDevices} color={totalDevices > 0 ? C.active : C.text3} />
         <StatChip label="Alerts" value={alertCount} color={alertCount > 0 ? C.alert : C.text3} />
       </div>
 
@@ -327,6 +330,7 @@ const NetworkDashboard = () => {
           alertCount={alertCount}
           logicalRooms={logicalRooms}
           sensors={sensors}
+          discoveredDevices={discoveredDevices}
         />
         <NetworkGraph />
       </div>

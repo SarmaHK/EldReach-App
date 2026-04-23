@@ -145,6 +145,14 @@ const useStore = create((set, get) => ({
    */
   discoveredDevices: (persisted.discoveredDevices ?? []).map(migrateDevice),
 
+  // ── Backend sync state ─────────────────────────────────────────────────────
+  /** True while the initial device fetch is in progress */
+  devicesLoading:  false,
+  /** Error message if the device fetch failed */
+  devicesError:    null,
+  /** Set to true once the first successful backend sync completes */
+  backendSynced:   false,
+
   // ── Monitoring ─────────────────────────────────────────────────────────────
   /**
    * monitoringState — keyed by logicalRoomId, derived by tickSimulation
@@ -185,32 +193,39 @@ const useStore = create((set, get) => ({
 
   // ── Device pool ────────────────────────────────────────────────
   /**
-   * refreshDevicePool — reload available devices.
+   * refreshDevicePool — reload available devices from the backend.
+   * Backend is the source of truth — if it returns 0 devices,
+   * the store will hold 0 devices (no stale localStorage data).
    */
   refreshDevicePool: async () => {
-    const s = get();
-    const fresh = await getDevices();
-    const assigned = s.discoveredDevices.filter(d => d.assignedNodeId !== null);
-    
-    const nextDevices = fresh.map(f => {
-      const existing = s.discoveredDevices.find(d => d.deviceId === f.deviceId);
-      if (existing && existing.assignedNodeId) {
-        return { ...f, assignedNodeId: existing.assignedNodeId, assignedRoomId: existing.assignedRoomId };
-      }
-      return f;
-    });
-    
-    // Add any assigned devices that didn't come in the fresh pool
-    for (const a of assigned) {
-      if (!nextDevices.find(d => d.deviceId === a.deviceId)) {
-        nextDevices.push(a);
-      }
+    set({ devicesLoading: true, devicesError: null });
+    try {
+      const s = get();
+      const fresh = await getDevices();
+
+      // Preserve local node-binding assignments for devices that
+      // still exist in the backend response.
+      const nextDevices = fresh.map(f => {
+        const existing = s.discoveredDevices.find(d => d.deviceId === f.deviceId);
+        if (existing && existing.assignedNodeId) {
+          return { ...f, assignedNodeId: existing.assignedNodeId, assignedRoomId: existing.assignedRoomId };
+        }
+        return f;
+      });
+
+      const next = {
+        discoveredDevices: nextDevices,
+        devicesLoading: false,
+        devicesError: null,
+        backendSynced: true,
+      };
+      set(next);
+      persistState({ ...s, ...next });
+      get().autoBindDevices();
+    } catch (err) {
+      console.error('[Store] refreshDevicePool failed:', err);
+      set({ devicesLoading: false, devicesError: 'Unable to load devices. Is the backend running?', backendSynced: true });
     }
-    
-    const next = { discoveredDevices: nextDevices };
-    set(next);
-    persistState({ ...s, ...next });
-    get().autoBindDevices();
   },
 
   updateDeviceInStore: (device) => {
