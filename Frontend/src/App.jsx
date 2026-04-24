@@ -10,7 +10,6 @@ import NetworkDashboard from './components/NetworkDashboard';
 import Settings from './components/Settings';
 import RoomDeviceAssignment from './components/RoomDeviceAssignment';
 import useStore from './store/useStore';
-import { useSimulation } from './hooks/useSimulation';
 import { useBackendSync } from './hooks/useBackendSync';
 import './index.css';
 
@@ -22,9 +21,6 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
-
-  // ── Simulation (no-op when IS_SIMULATION_MODE = false) ────────────────────
-  useSimulation();
 
   // ── Real Backend Sync ──────────────────────────────────────────────────────
   useBackendSync();

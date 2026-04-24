@@ -148,7 +148,48 @@ const getAllDevices = async () => {
   return Device.find().sort({ lastSeen: -1 });
 };
 
+const registerDevice = async ({ deviceId, gatewayId, roomId }) => {
+  const now = new Date();
+  
+  // Check if device already exists
+  let device = await Device.findOne({ deviceId });
+  let isNew = false;
+  
+  if (device) {
+    // Update existing device
+    device.gatewayId = gatewayId;
+    if (roomId) device.roomId = roomId;
+    device.lastSeen = now;
+    await device.save();
+  } else {
+    isNew = true;
+    // Create new device
+    device = new Device({
+      deviceId,
+      gatewayId,
+      roomId: roomId || null,
+      status: 'inactive',
+      lastSeen: now,
+      lastActive: now,
+      sensors: {}
+    });
+    await device.save();
+  }
+
+  // Notify clients
+  socketService.emitToAll('device:update', {
+    deviceId: device.deviceId,
+    gatewayId: device.gatewayId,
+    roomId: device.roomId,
+    status: device.status,
+    lastSeen: device.lastSeen,
+  });
+
+  return { device, isNew };
+};
+
 module.exports = {
   updateDevice,
   getAllDevices,
+  registerDevice,
 };

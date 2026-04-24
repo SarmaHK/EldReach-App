@@ -10,7 +10,7 @@ const scanGateway = async (req, res) => {
 
     if (!result.success) {
       // Return appropriate HTTP status based on error type
-      const statusCode = result.error === 'GATEWAY_NOT_FOUND' ? 404 : 502;
+      const statusCode = result.error === 'GATEWAY_NOT_FOUND' ? 503 : 502;
       return res.status(statusCode).json({
         status: 'error',
         error: result.error,

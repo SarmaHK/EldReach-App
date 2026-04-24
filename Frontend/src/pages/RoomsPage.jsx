@@ -7,7 +7,6 @@ import {
 import Canvas from '../components/Canvas';
 import RoomDeviceAssignment from '../components/RoomDeviceAssignment';
 import useStore from '../store/useStore';
-import { useSimulation } from '../hooks/useSimulation';
 
 
 /**
@@ -15,8 +14,6 @@ import { useSimulation } from '../hooks/useSimulation';
  */
 export default function RoomsPage() {
   const [theme] = useState(() => document.documentElement.getAttribute('data-theme') || 'light');
-
-  useSimulation();
 
   // ── Global keyboard shortcuts ──────────────────────────────────────────────
   useEffect(() => {

@@ -24,9 +24,9 @@
  *   ALERT        — no motion > 15 s (red)
  *   DISCONNECTED — device lost connection (grey)
  *
- * ── Data flow ──────────────────────────────────────────────
- *   Hardware → deviceService → store actions → React components
- *   Simulation → tickSimulation() → store state → React components
+ * ── Data flow ────────────────────────────────────────────
+ *   Backend API → useBackendSync → store actions → React components
+ *   Socket.IO events → updateDeviceInStore / addAlertToStore → React components
  */
 
 import { create } from 'zustand';
@@ -34,7 +34,7 @@ import { getDevices } from '../services/deviceService';
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
-const PERSIST_KEY = 'eldreach_v3'; // bumped version to clear stale v2 shape
+const PERSIST_KEY = 'eldreach_v4'; // bumped to v4 — clears stale mock/simulation data
 
 function loadPersistedState() {
   try {
@@ -52,8 +52,8 @@ function persistState(state) {
       logicalRooms:      state.logicalRooms,
       sensors:           state.sensors,
       gatewayNode:       state.gatewayNode,
-      discoveredDevices: state.discoveredDevices,
-      monitoringState:   state.monitoringState,
+      // NOTE: discoveredDevices and monitoringState are NOT persisted.
+      // They are transient backend data — always fetched fresh on load.
       globalGatewayId:   state.globalGatewayId,
       settings:          state.settings,
     }));
@@ -140,10 +140,11 @@ const useStore = create((set, get) => ({
 
   // ── Device pool ────────────────────────────────────────────────────────────
   /**
-   * discoveredDevices — pool of detected devices (sim or real)
+   * discoveredDevices — pool of detected devices from backend.
+   * Always starts empty — populated by useBackendSync on load.
    * Shape: { id, deviceId, connectionStatus, assignedRoomId, assignedNodeId, scannedAt }
    */
-  discoveredDevices: (persisted.discoveredDevices ?? []).map(migrateDevice),
+  discoveredDevices: [],
 
   // ── Backend sync state ─────────────────────────────────────────────────────
   /** True while the initial device fetch is in progress */
@@ -155,18 +156,19 @@ const useStore = create((set, get) => ({
 
   // ── Monitoring ─────────────────────────────────────────────────────────────
   /**
-   * monitoringState — keyed by logicalRoomId, derived by tickSimulation
+   * monitoringState — keyed by logicalRoomId, derived from real backend data.
+   * Always starts empty — populated by real-time Socket.IO events.
    * Shape: { [roomId]: { status, connectionStatus, deviceId, lastActive, lastSeen, logs[] } }
    */
-  monitoringState: persisted.monitoringState ?? {},
+  monitoringState: {},
   alerts:          [],
-  gatewayStats:    { lastSyncTime: Date.now(), packetsReceived: 0 },
+  gatewayStats:    { lastSyncTime: null, packetsReceived: 0 },
 
   // ── UI state ───────────────────────────────────────────────────────────────
   selectedIds:     [],
   lockedIds:       [],
   designerState:   'EDIT',
-  globalGatewayId: persisted.globalGatewayId ?? 'GW-ELD-01',
+  globalGatewayId: persisted.globalGatewayId ?? null,
 
   // ── Gateway connection state (mDNS discovery) ──────────────────────────
   /** The connected gateway info { gatewayId, ip, status, lastSeen } or null */
@@ -259,6 +261,7 @@ const useStore = create((set, get) => ({
     try {
       const s = get();
       const fresh = await getDevices();
+      console.log('[Store] Devices from backend:', fresh.length, fresh.map(d => d.deviceId));
 
       // Preserve local node-binding assignments for devices that
       // still exist in the backend response.
@@ -760,79 +763,6 @@ const useStore = create((set, get) => ({
     set(s => ({ alerts: s.alerts.map(a => a.id === alertId ? { ...a, acknowledged: true } : a) }));
   },
 
-  // ── Simulation tick ────────────────────────────────────────────────────────
-  /**
-   * tickSimulation — driven by simulationService every 3 s.
-   *
-   * Iterates over BOUND sensor nodes to:
-   *   1. Simulate disconnect / reconnect events (2% chance).
-   *   2. Simulate motion events (30% chance).
-   *   3. Derive status (CONNECTED → INACTIVE → ALERT) from lastActive age.
-   *   4. Write back to sensor.status and monitoringState[roomId].
-   */
-  tickSimulation() {
-    set(s => {
-      const boundNodes = s.sensors.filter(n => n.assignedDeviceId !== null);
-      if (!boundNodes.length) return s;
-
-      const now = Date.now();
-      let updatedSensors  = [...s.sensors];
-      const newMon        = { ...s.monitoringState };
-      let newAlerts       = [...s.alerts];
-      let connectedCount  = 0;
-
-      boundNodes.forEach(node => {
-        const roomId = node.logicalRoomId;
-        let rs = { ...(newMon[roomId] ?? {
-          status: 'NORMAL', connectionStatus: 'CONNECTED',
-          deviceId: node.assignedDeviceId, lastActive: now, lastSeen: now, logs: [],
-        })};
-
-        // 2% disconnect/reconnect
-        if (Math.random() < 0.02) {
-          if (rs.connectionStatus === 'CONNECTED') {
-            rs  = { ...rs, connectionStatus: 'DISCONNECTED', logs: [{ time: now, msg: 'Device disconnected (timeout)' }, ...rs.logs].slice(0, 10) };
-            newAlerts = [{ id: `alert-dc-${now}-${node.id}`, roomId, roomName: s.logicalRooms.find(r => r.id === roomId)?.name ?? '', message: `Device offline in ${s.logicalRooms.find(r => r.id === roomId)?.name ?? 'room'}`, timestamp: now, acknowledged: false }, ...newAlerts];
-            updatedSensors = updatedSensors.map(n => n.id === node.id ? { ...n, status: 'DISCONNECTED' } : n);
-          } else {
-            rs  = { ...rs, connectionStatus: 'CONNECTED', lastSeen: now, logs: [{ time: now, msg: 'Device reconnected' }, ...rs.logs].slice(0, 10) };
-            updatedSensors = updatedSensors.map(n => n.id === node.id ? { ...n, status: 'CONNECTED' } : n);
-          }
-        }
-
-        if (rs.connectionStatus === 'CONNECTED') {
-          connectedCount++;
-          rs = { ...rs, lastSeen: now };
-          if (Math.random() < 0.3) {
-            rs = { ...rs, lastActive: now, logs: [{ time: now, msg: 'Motion detected' }, ...rs.logs].slice(0, 10) };
-          }
-          if (rs.status !== 'ALERT') {
-            const diffSec = (now - (rs.lastActive ?? now)) / 1000;
-            const newStatus = diffSec > 15 ? 'ALERT' : diffSec > 8 ? 'INACTIVE' : 'NORMAL';
-            if (newStatus === 'ALERT') {
-              newAlerts = [{ id: `alert-${now}-${node.id}`, roomId, roomName: s.logicalRooms.find(r => r.id === roomId)?.name ?? '', message: `Inactivity alert in ${s.logicalRooms.find(r => r.id === roomId)?.name ?? 'room'}`, timestamp: now, acknowledged: false }, ...newAlerts];
-            }
-            rs = { ...rs, status: newStatus };
-            // Mirror to sensor node status
-            updatedSensors = updatedSensors.map(n =>
-              n.id === node.id && n.assignedDeviceId
-                ? { ...n, status: newStatus }
-                : n
-            );
-          }
-        }
-
-        if (roomId) newMon[roomId] = rs;
-      });
-
-      return {
-        sensors:        updatedSensors,
-        monitoringState: newMon,
-        alerts:          newAlerts,
-        gatewayStats:    { lastSyncTime: now, packetsReceived: s.gatewayStats.packetsReceived + connectedCount },
-      };
-    });
-  },
 }));
 
 // ─── Private helpers ──────────────────────────────────────────────────────────

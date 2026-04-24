@@ -3,38 +3,57 @@ import useStore from '../store/useStore';
 import { subscribeToDeviceUpdates, subscribeToAlerts, getAlerts, getRooms } from '../services/deviceService';
 import socket from '../services/socket';
 
+/**
+ * useBackendSync — single hook that drives ALL real-time data.
+ *
+ * Called once in Layout.jsx to:
+ *   1. Fetch initial devices, alerts, rooms from backend APIs
+ *   2. Subscribe to Socket.IO events for real-time updates
+ *   3. Auto-refresh on reconnection
+ *
+ * This is the ONLY source of data for the frontend.
+ * No mock data, no simulation, no fake defaults.
+ */
 export function useBackendSync() {
   useEffect(() => {
     const store = useStore.getState();
 
-    // 1. Initial Sync
+    // 1. Initial fetch — devices
     store.refreshDevicePool();
-    
-    getRooms().then(initialRooms => {
-      if (initialRooms && initialRooms.length > 0) {
-        useStore.setState({ backendRooms: initialRooms });
-      }
-    });
 
-    getAlerts().then(initialAlerts => {
-      // Sort and add initial alerts if any, typically just setting to state or passing through addAlertToStore
-      // For now, let's just reverse and add to ensure order, but we can also just let new ones stream in.
-      if (initialAlerts && initialAlerts.length > 0) {
-        // Maybe directly set them or push through addAlertToStore
-        // Simple way:
-        useStore.setState(s => ({
-          alerts: initialAlerts.map(a => ({
-            id: a._id,
-            message: a.message,
-            timestamp: new Date(a.createdAt).getTime(),
-            acknowledged: false,
-            deviceId: a.deviceId,
-          }))
-        }));
-      }
-    });
+    // 2. Initial fetch — alerts
+    getAlerts()
+      .then(initialAlerts => {
+        if (initialAlerts && initialAlerts.length > 0) {
+          useStore.setState({
+            alerts: initialAlerts.map(a => ({
+              id: a._id,
+              message: a.message,
+              timestamp: new Date(a.createdAt).getTime(),
+              acknowledged: false,
+              deviceId: a.deviceId,
+            }))
+          });
+        }
+        // If no alerts, store stays at [] (empty — correct)
+      })
+      .catch(err => {
+        console.error('[BackendSync] Failed to fetch alerts:', err);
+      });
 
-    // 2. Real-Time Socket Listeners
+    // 3. Initial fetch — rooms
+    getRooms()
+      .then(initialRooms => {
+        if (initialRooms && initialRooms.length > 0) {
+          useStore.setState({ backendRooms: initialRooms });
+        }
+        // If no rooms, store stays at [] (empty — correct)
+      })
+      .catch(err => {
+        console.error('[BackendSync] Failed to fetch rooms:', err);
+      });
+
+    // 4. Real-Time Socket Listeners
     const unsubscribeDevices = subscribeToDeviceUpdates((device) => {
       useStore.getState().updateDeviceInStore(device);
     });
@@ -43,10 +62,23 @@ export function useBackendSync() {
       useStore.getState().addAlertToStore(alert);
     });
 
-    // 3. Reconnection Handling
+    // 5. Reconnection — refetch everything fresh
     const handleConnect = () => {
-      console.log('[BackendSync] Socket connected/reconnected. Refreshing data.');
+      console.log('[BackendSync] Socket connected/reconnected. Refreshing all data.');
       useStore.getState().refreshDevicePool();
+      getAlerts().then(alerts => {
+        if (alerts && alerts.length > 0) {
+          useStore.setState({
+            alerts: alerts.map(a => ({
+              id: a._id,
+              message: a.message,
+              timestamp: new Date(a.createdAt).getTime(),
+              acknowledged: false,
+              deviceId: a.deviceId,
+            }))
+          });
+        }
+      }).catch(() => {});
     };
 
     socket.on('connect', handleConnect);

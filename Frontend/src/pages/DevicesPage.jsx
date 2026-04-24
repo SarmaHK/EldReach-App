@@ -23,7 +23,7 @@ export default function DevicesPage() {
   const devicesLoading = useStore(s => s.devicesLoading);
   const devicesError = useStore(s => s.devicesError);
   const backendSynced = useStore(s => s.backendSynced);
-  const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState(null); // 'scan' | 'manual' | null
 
   // Gateway connection state
   const connectedGateway = useStore(s => s.connectedGateway);
@@ -59,10 +59,10 @@ export default function DevicesPage() {
           {hasDevices && (
             <button
               className="page-header__action"
-              onClick={() => setShowModal(true)}
+              onClick={() => setModalMode('scan')}
             >
               <Plus size={16} />
-              Connect Device
+              Scan Sensor Node
             </button>
           )}
         </div>
@@ -101,7 +101,7 @@ export default function DevicesPage() {
           </p>
         </div>
 
-      /* ── ERROR STATE ──────────────────────────────────────── */
+        /* ── ERROR STATE ──────────────────────────────────────── */
       ) : devicesError ? (
         <div className="empty-state-card">
           <div className="empty-state-card__icon-ring">
@@ -121,7 +121,7 @@ export default function DevicesPage() {
           </div>
         </div>
 
-      /* ── SCANNING STATE ────────────────────────────────────── */
+        /* ── SCANNING STATE ────────────────────────────────────── */
       ) : gatewayScanning ? (
         <div className="empty-state-card">
           <div className="empty-state-card__icon-ring">
@@ -140,7 +140,7 @@ export default function DevicesPage() {
           </div>
         </div>
 
-      /* ── SCAN ERROR STATE ──────────────────────────────────── */
+        /* ── SCAN ERROR STATE ──────────────────────────────────── */
       ) : gatewayScanError ? (
         <div className="empty-state-card">
           <div className="empty-state-card__icon-ring">
@@ -178,7 +178,7 @@ export default function DevicesPage() {
           </div>
         </div>
 
-      /* ── EMPTY STATE (No gateway connected yet) ────────────── */
+        /* ── EMPTY STATE (No gateway connected yet) ────────────── */
       ) : !hasGateway && discoveredDevices.length === 0 ? (
         <div className="empty-state-card">
           <div className="empty-state-card__icon-ring">
@@ -187,10 +187,9 @@ export default function DevicesPage() {
             </div>
             <div className="empty-state-card__pulse" />
           </div>
-          <h2 className="empty-state-card__title">No devices connected</h2>
+          <h2 className="empty-state-card__title">No gateway found</h2>
           <p className="empty-state-card__desc">
-            Scan your network to discover the EldReach gateway. Once connected,
-            sensor nodes will appear automatically.
+            Scan your network to discover the EldReach gateway. You must connect a gateway before registering sensor nodes.
           </p>
           <div className="empty-state-card__actions">
             <button
@@ -200,13 +199,6 @@ export default function DevicesPage() {
             >
               <Search size={18} />
               Scan for Devices
-            </button>
-            <button
-              className="empty-state-card__link-btn"
-              onClick={() => setShowModal(true)}
-            >
-              <Plus size={14} />
-              Add Manually
             </button>
           </div>
 
@@ -222,14 +214,44 @@ export default function DevicesPage() {
             <div className="empty-state-card__tip">
               <Wifi size={16} />
               <div>
-                <strong>Using the simulator?</strong>
-                <span>Run <code>node simulator.js</code> in the Backend folder, or add a device manually.</span>
+                <strong>Sensor Nodes</strong>
+                <span>After the gateway connects, you will be prompted to scan the QR codes on your sensor nodes.</span>
               </div>
             </div>
           </div>
         </div>
 
-      /* ── DEVICE LIST ──────────────────────────────────────── */
+        /* ── EMPTY STATE (Gateway connected, no nodes) ─────────── */
+      ) : hasGateway && !hasDevices ? (
+        <div className="empty-state-card">
+          <div className="empty-state-card__icon-ring">
+            <div className="empty-state-card__icon" style={{ color: 'var(--brand)' }}>
+              <Activity size={40} strokeWidth={1.5} />
+            </div>
+          </div>
+          <h2 className="empty-state-card__title">No sensor nodes registered</h2>
+          <p className="empty-state-card__desc">
+            Your gateway is online, but no sensor nodes are paired. Scan a node's QR code to add it to the system.
+          </p>
+          <div className="empty-state-card__actions">
+            <button
+              className="empty-state-card__cta"
+              onClick={() => setModalMode('scan')}
+            >
+              <Plus size={18} />
+              Scan Sensor Node
+            </button>
+            <button
+              className="empty-state-card__link-btn"
+              onClick={() => setModalMode('manual')}
+            >
+              <Plus size={14} />
+              Add Manually
+            </button>
+          </div>
+        </div>
+
+        /* ── DEVICE LIST ──────────────────────────────────────── */
       ) : (
         <div className="devices-grid">
           {discoveredDevices.map(device => (
@@ -245,8 +267,8 @@ export default function DevicesPage() {
                   <h3 className="device-card__name">{device.deviceId}</h3>
                   <span className="device-card__gateway">{device.gatewayId || 'No gateway'}</span>
                 </div>
-                <span className={`device-card__status-badge ${device.connectionStatus === 'CONNECTED' ? 'active' : 'inactive'}`}>
-                  {device.connectionStatus === 'CONNECTED' ? 'active' : device.status || 'offline'}
+                <span className={`device-card__status-badge ${device.connectionStatus === 'CONNECTED' ? 'active' : (device.status === 'inactive' ? 'waiting' : 'inactive')}`}>
+                  {device.connectionStatus === 'CONNECTED' ? 'active' : (device.status === 'inactive' ? 'Waiting for data' : device.status || 'offline')}
                 </span>
               </div>
 
@@ -298,9 +320,10 @@ export default function DevicesPage() {
 
       {/* Connect Device Modal */}
       <ConnectDeviceModal
-        isOpen={showModal}
+        isOpen={!!modalMode}
+        mode={modalMode}
         onClose={() => {
-          setShowModal(false);
+          setModalMode(null);
           // Refresh device pool after closing modal
           useStore.getState().refreshDevicePool();
         }}

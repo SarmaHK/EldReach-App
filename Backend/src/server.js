@@ -5,9 +5,13 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const socketService = require('./services/socketService');
 const { initMqttClient } = require('./mqtt/mqttClient');
+const gatewayRoutes = require('./routes/gatewayRoutes');
 
 // Connect to MongoDB
 connectDB();
+
+// Register Gateway Routes
+app.use('/api/gateway', gatewayRoutes);
 
 const PORT = process.env.PORT || 5000;
 
