@@ -18,9 +18,11 @@ app.get('/api/health', (req, res) => {
 const deviceRoutes = require('./routes/deviceRoutes');
 const alertRoutes = require('./routes/alertRoutes');
 const roomRoutes = require('./routes/roomRoutes');
+const gatewayRoutes = require('./routes/gatewayRoutes');
 app.use('/api/devices', deviceRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/rooms', roomRoutes);
+app.use('/api/gateway', gatewayRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

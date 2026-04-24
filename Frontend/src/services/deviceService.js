@@ -89,3 +89,43 @@ export async function connectToGateway(gatewayId) {
   console.info(`[DeviceService] connectToGateway("${gatewayId}")`);
   return Promise.resolve({ connected: true });
 }
+
+/**
+ * Trigger a gateway scan via mDNS on the backend.
+ * @returns {Promise<{ success: boolean, gateway?: object, error?: string, message?: string }>}
+ */
+export async function scanForGateway() {
+  try {
+    const res = await axios.post(`${API_BASE}/gateway/scan`);
+    return res.data;
+  } catch (error) {
+    // Backend returns structured error responses — forward them
+    if (error.response?.data) {
+      return {
+        success: false,
+        error: error.response.data.error || 'SCAN_FAILED',
+        message: error.response.data.message || 'Gateway scan failed.',
+      };
+    }
+    return {
+      success: false,
+      error: 'NETWORK_ERROR',
+      message: 'Unable to reach backend. Is the server running?',
+    };
+  }
+}
+
+/**
+ * Subscribe to gateway status updates via Socket.IO.
+ * @param {(data: any) => void} callback
+ * @returns {() => void} Unsubscribe function
+ */
+export function subscribeToGatewayUpdates(callback) {
+  socket.on('gateway:update', (data) => {
+    callback(data);
+  });
+  return () => {
+    socket.off('gateway:update');
+  };
+}
+

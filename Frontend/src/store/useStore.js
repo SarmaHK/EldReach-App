@@ -168,6 +168,16 @@ const useStore = create((set, get) => ({
   designerState:   'EDIT',
   globalGatewayId: persisted.globalGatewayId ?? 'GW-ELD-01',
 
+  // ── Gateway connection state (mDNS discovery) ──────────────────────────
+  /** The connected gateway info { gatewayId, ip, status, lastSeen } or null */
+  connectedGateway: null,
+  /** True while scanning for gateway */
+  gatewayScanning: false,
+  /** Error message from last scan attempt */
+  gatewayScanError: null,
+  /** Feedback message shown during/after scan */
+  gatewayScanMessage: null,
+
   // ── Settings ───────────────────────────────────────────────────────────────
   settings: persisted.settings ?? {
     activitySensitivity: 'Medium',
@@ -189,6 +199,53 @@ const useStore = create((set, get) => ({
       persistState({ ...s, ...next });
       return next;
     });
+  },
+
+  // ── Gateway scan ──────────────────────────────────────────────
+  /**
+   * scanGateway — trigger mDNS scan via backend API.
+   * Updates gatewayScanning, connectedGateway, gatewayScanError, gatewayScanMessage.
+   */
+  scanGateway: async () => {
+    const { scanForGateway } = await import('../services/deviceService');
+    set({
+      gatewayScanning: true,
+      gatewayScanError: null,
+      gatewayScanMessage: 'Scanning network…',
+    });
+
+    try {
+      const result = await scanForGateway();
+
+      if (result.success) {
+        set({
+          connectedGateway: result.gateway,
+          gatewayScanning: false,
+          gatewayScanError: null,
+          gatewayScanMessage: 'Gateway connected successfully!',
+        });
+        // Auto-refresh device pool after gateway connects
+        get().refreshDevicePool();
+      } else {
+        set({
+          gatewayScanning: false,
+          gatewayScanError: result.error,
+          gatewayScanMessage:
+            result.error === 'GATEWAY_NOT_FOUND'
+              ? 'No gateway found on the network.'
+              : result.error === 'ID_HANDSHAKE_FAILED'
+              ? 'Gateway found but handshake failed.'
+              : result.message || 'Scan failed.',
+        });
+      }
+    } catch (err) {
+      console.error('[Store] scanGateway failed:', err);
+      set({
+        gatewayScanning: false,
+        gatewayScanError: 'SCAN_FAILED',
+        gatewayScanMessage: 'Unexpected error during scan.',
+      });
+    }
   },
 
   // ── Device pool ────────────────────────────────────────────────

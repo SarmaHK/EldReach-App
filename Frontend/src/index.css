@@ -1774,3 +1774,118 @@ body { overflow: auto; }
   100% { transform: scale(1.5); opacity: 0; }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   Gateway Banner — shown when gateway is connected
+═══════════════════════════════════════════════════════════════════ */
+.gateway-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+  background: var(--status-active-bg);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--radius-md);
+  animation: fadeIn 0.4s ease-out;
+}
+
+.gateway-banner__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--status-active);
+  flex-shrink: 0;
+}
+
+.gateway-banner__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.gateway-banner__label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--status-active);
+}
+
+.gateway-banner__detail {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.gateway-banner__status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--status-active);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Gateway Scan Animations
+═══════════════════════════════════════════════════════════════════ */
+.gateway-scan-icon {
+  color: var(--brand) !important;
+  background: var(--brand-soft) !important;
+}
+
+@keyframes scan-pulse-anim {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.7; }
+}
+
+.scan-pulse {
+  animation: scan-pulse-anim 1.5s ease-in-out infinite;
+}
+
+.gateway-scan-progress {
+  width: 200px;
+  height: 3px;
+  background: var(--bg-raised);
+  border-radius: 100px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.gateway-scan-progress__bar {
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand) 0%, #7C3AED 100%);
+  border-radius: 100px;
+  animation: scan-bar-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes scan-bar-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* ── Link-style button for empty state ── */
+.empty-state-card__link-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 0.8rem 1.5rem;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.empty-state-card__link-btn:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  border-color: var(--border-soft);
+}
