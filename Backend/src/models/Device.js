@@ -24,6 +24,9 @@ const presenceSchema = new mongoose.Schema(
   {
     motionDetected: { type: Boolean },
     breathingDetected: { type: Boolean },
+    breathingBPM: { type: Number },
+    nodeBattery: { type: Number },
+    personSafe: { type: Boolean },
   },
   { _id: false }
 );
@@ -46,6 +49,11 @@ const deviceSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    customName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     gatewayId: {
       type: String,
       trim: true,
@@ -58,8 +66,7 @@ const deviceSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'inactive'],
-      default: 'inactive',
+      default: 'waiting',
     },
     sensors: {
       type: sensorsSchema,

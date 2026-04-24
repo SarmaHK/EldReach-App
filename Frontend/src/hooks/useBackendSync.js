@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import useStore from '../store/useStore';
-import { subscribeToDeviceUpdates, subscribeToAlerts, getAlerts, getRooms } from '../services/deviceService';
+import { subscribeToDeviceUpdates, subscribeToAlerts, subscribeToGatewayUpdates, getAlerts, getRooms, getGatewayStatus } from '../services/deviceService';
 import socket from '../services/socket';
 
 /**
@@ -53,6 +53,18 @@ export function useBackendSync() {
         console.error('[BackendSync] Failed to fetch rooms:', err);
       });
 
+    // 3.5. Initial fetch — gateway status
+    getGatewayStatus()
+      .then(gateway => {
+        if (gateway) {
+          useStore.setState({ connectedGateway: gateway });
+          console.log('[BackendSync] Gateway loaded:', gateway.gatewayId);
+        }
+      })
+      .catch(err => {
+        console.error('[BackendSync] Failed to fetch gateway status:', err);
+      });
+
     // 4. Real-Time Socket Listeners
     const unsubscribeDevices = subscribeToDeviceUpdates((device) => {
       useStore.getState().updateDeviceInStore(device);
@@ -61,6 +73,26 @@ export function useBackendSync() {
     const unsubscribeAlerts = subscribeToAlerts((alert) => {
       useStore.getState().addAlertToStore(alert);
     });
+
+    const unsubscribeGateway = subscribeToGatewayUpdates((gateway) => {
+      useStore.setState({ connectedGateway: gateway });
+    });
+
+    socket.on('gateway:status', (gateway) => {
+      useStore.setState({ connectedGateway: gateway });
+    });
+
+    // Listen for device removal broadcasts
+    socket.on('device:removed', ({ deviceId }) => {
+      useStore.setState(s => ({
+        discoveredDevices: s.discoveredDevices.filter(d => d.deviceId !== deviceId),
+      }));
+    });
+
+    // 4.5. Time-based status evaluation
+    const timeoutInterval = setInterval(() => {
+      useStore.getState().evaluateTimeouts();
+    }, 5000);
 
     // 5. Reconnection — refetch everything fresh
     const handleConnect = () => {
@@ -79,6 +111,11 @@ export function useBackendSync() {
           });
         }
       }).catch(() => {});
+
+      // Also refresh gateway status on reconnection
+      getGatewayStatus().then(gw => {
+        if (gw) useStore.setState({ connectedGateway: gw });
+      }).catch(() => {});
     };
 
     socket.on('connect', handleConnect);
@@ -86,7 +123,10 @@ export function useBackendSync() {
     return () => {
       unsubscribeDevices();
       unsubscribeAlerts();
+      unsubscribeGateway();
+      clearInterval(timeoutInterval);
       socket.off('connect', handleConnect);
+      socket.off('device:removed');
     };
   }, []);
 }

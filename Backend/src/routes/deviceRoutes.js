@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { upsertDevice, getDevices, registerDevice } = require('../controllers/deviceController');
+const { handleIncomingTelemetry, getDevices, registerDevice, renameDevice, deleteDevice } = require('../controllers/deviceController');
 
-router.post('/', upsertDevice);
+router.post('/', handleIncomingTelemetry);
 router.post('/register', registerDevice);
 router.get('/', getDevices);
+router.patch('/:deviceId', renameDevice);
+router.delete('/:deviceId', deleteDevice);
 
 module.exports = router;

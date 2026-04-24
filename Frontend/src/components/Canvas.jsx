@@ -9,7 +9,9 @@ import Doorway from './Doorway';
 const NODE_COLORS = {
   UNBOUND:      '#475569', // grey
   CONNECTED:    '#10b981', // green
+  CONNECTING:   '#f59e0b', // amber
   INACTIVE:     '#f59e0b', // amber
+  NO_HUB:       '#f59e0b', // amber
   ALERT:        '#ef4444', // red
   DISCONNECTED: '#475569', // grey (same as unbound but dimmer)
 };
@@ -155,10 +157,10 @@ const Canvas = ({ theme }) => {
                   const roomNodes = sensors.filter(n => n.logicalRoomId === lr.id);
                   const bound = roomNodes.filter(n => n.assignedDeviceId);
                   const label = bound.length
-                    ? `${bound.length}/${roomNodes.length} sensor${roomNodes.length !== 1 ? 's' : ''} active`
+                    ? `${bound.length}/${roomNodes.length} device${roomNodes.length !== 1 ? 's' : ''} working`
                     : roomNodes.length
-                      ? `${roomNodes.length} sensor${roomNodes.length !== 1 ? 's' : ''} — not connected`
-                      : 'No sensors placed';
+                      ? `${roomNodes.length} device${roomNodes.length !== 1 ? 's' : ''} — not connected`
+                      : 'No devices placed';
                   const color = bound.length ? '#10b981' : roomNodes.length ? '#f59e0b' : '#64748b';
                   return <Text text={label} fill={color} x={12} y={30} fontSize={11} fontFamily="system-ui" />;
                 })()}
@@ -292,7 +294,7 @@ const Canvas = ({ theme }) => {
               )}
               <Circle radius={24} fill="#DCFCE7" stroke={gatewayColor} strokeWidth={2.5} shadowColor="rgba(0,0,0,0.08)" shadowBlur={8} />
               <Circle radius={6} fill={gatewayColor} />
-              <Text text={globalGatewayId || 'GATEWAY'} y={30} x={-40} width={80} align="center" fill={theme === 'dark' ? '#F8FAFC' : '#1E293B'} fontSize={11} fontFamily="system-ui" />
+              <Text text={globalGatewayId || 'HOME HUB'} y={30} x={-40} width={80} align="center" fill={theme === 'dark' ? '#F8FAFC' : '#1E293B'} fontSize={11} fontFamily="system-ui" />
             </Group>
           )}
         </Layer>

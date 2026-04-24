@@ -15,16 +15,19 @@ import useStore from '../store/useStore';
 
 // Node status → visual
 const NODE_STATUS = {
-  UNBOUND:      { label: 'Unbound',    color: '#475569', glow: false },
-  CONNECTED:    { label: 'Active',     color: '#10b981', glow: true  },
-  INACTIVE:     { label: 'Inactive',   color: '#f59e0b', glow: false },
+  UNBOUND:      { label: 'Unassigned', color: '#475569', glow: false },
+  CONNECTED:    { label: 'Working',    color: '#10b981', glow: true  },
+  CONNECTING:   { label: 'Waiting for device', color: '#f59e0b', glow: false },
+  NO_HUB:       { label: 'No connection to home hub', color: '#f59e0b', glow: false },
+  INACTIVE:     { label: 'Waiting for data', color: '#f59e0b', glow: false },
   ALERT:        { label: 'Alert',      color: '#ef4444', glow: true  },
   DISCONNECTED: { label: 'Offline',    color: '#64748b', glow: false },
 };
 
 const DeviceStatus = (cs) => {
-  if (cs === 'CONNECTED')  return { label: 'Active',        color: '#10b981' };
-  if (cs === 'CONNECTING') return { label: 'Connecting…',   color: '#f59e0b' };
+  if (cs === 'CONNECTED')  return { label: 'Working',       color: '#10b981' };
+  if (cs === 'CONNECTING') return { label: 'Waiting for device', color: '#f59e0b' };
+  if (cs === 'NO_HUB')     return { label: 'No connection to home hub', color: '#f59e0b' };
   return                          { label: 'Offline',       color: '#64748b' };
 };
 
@@ -51,11 +54,11 @@ const RoomDeviceAssignment = ({ room }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Sensor Nodes</span>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Devices</span>
         {/* Add another node to this room */}
         <button
           onClick={() => addSensorNode(room.id, room.bounds.x + room.bounds.width / 2, room.bounds.y + room.bounds.height / 2)}
-          title="Place a sensor node in this room"
+          title="Place a device in this room"
           style={{
             display: 'flex', alignItems: 'center', gap: '3px',
             background: 'var(--brand-soft)', border: '1px solid var(--brand-border)',
@@ -63,13 +66,13 @@ const RoomDeviceAssignment = ({ room }) => {
             color: 'var(--brand)', fontSize: '0.65rem', cursor: 'pointer',
           }}
         >
-          <Plus size={10} /> Add Node
+          <Plus size={10} /> Add Device
         </button>
       </div>
 
       {roomNodes.length === 0 ? (
         <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontStyle: 'italic', padding: '6px 0' }}>
-          No sensor nodes placed. Click "Add Node" or use "Place Sensor" in the toolbar.
+          No devices placed. Click "Add Device" or use "Place Device" in the toolbar.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -97,7 +100,7 @@ const RoomDeviceAssignment = ({ room }) => {
                     }} />
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: node.assignedDeviceId ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
-                        {node.assignedDeviceId ?? 'Unbound'}
+                        {node.assignedDeviceId ?? 'Unassigned'}
                       </span>
                       <span style={{ fontSize: '0.62rem', color: ns.color }}>
                         {ns.label}
@@ -118,7 +121,7 @@ const RoomDeviceAssignment = ({ room }) => {
                       <button
                         onClick={() => { unassignNode(node.id); setOpenNodeId(null); }}
                         style={miniBtn('#ef4444')}
-                        title="Unbind device"
+                        title="Unassign device"
                       >
                         <WifiOff size={10} />
                       </button>
@@ -138,7 +141,7 @@ const RoomDeviceAssignment = ({ room }) => {
                   }}>
                     {available.length === 0 ? (
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', padding: '5px' }}>
-                        No devices available. Gateway may be connecting.
+                        No devices available. Home hub may be connecting.
                       </div>
                     ) : (
                       available.map(dev => {

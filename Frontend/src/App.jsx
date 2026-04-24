@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   PlusSquare, MousePointer2, Minus, LayoutGrid,
   Bed, DoorOpen, RotateCw, Armchair, Square,
-  Radio, Activity, Bell, X, Undo2, Redo2, Lock, Unlock, Wifi, Settings as SettingsIcon,
+  Radio, Activity, Bell, X, Undo2, Redo2, Lock, Unlock, Wifi, WifiOff, Settings as SettingsIcon,
   Moon, Sun
 } from 'lucide-react';
 import Canvas from './components/Canvas';
@@ -58,6 +58,9 @@ function App() {
 
   const alerts            = useStore(s => s.alerts);
   const acknowledgeAlert  = useStore(s => s.acknowledgeAlert);
+  const connectedGateway  = useStore(s => s.connectedGateway);
+  const scanGateway       = useStore(s => s.scanGateway);
+  const gatewayScanning   = useStore(s => s.gatewayScanning);
 
   const addRoom           = useStore(s => s.addRoom);
   const addFurniture      = useStore(s => s.addFurniture);
@@ -81,6 +84,9 @@ function App() {
   const selectedLogicalRoom = logicalRooms.find(r => selectedIds.includes(r.id)) ?? null;
   const allLocked = selectedIds.length > 0 && selectedIds.every(id => lockedIds.includes(id));
   const hasRooms = logicalRooms.length > 0;
+
+  // Gateway status helpers
+  const gwConnected = connectedGateway && connectedGateway.status !== 'Offline' && connectedGateway.status !== 'offline';
 
   return (
     <div className="app-container">
@@ -141,217 +147,239 @@ function App() {
       </div>
 
       {/* ── Main content ─────────────────────────────────────────────────────── */}
+      {/* ── Main content ─────────────────────────────────────────────────────── */}
       <main className="main-content">
-        {activePage === 'designer' ? (
-          <>
-            {/* ── Sidebar ──────────────────────────────────────────────────── */}
-            {designerState === 'EDIT' && (
-              <aside className="sidebar">
-                <div className="sidebar-header">Tools</div>
-                <div className="tools-list">
-
-                  {/* Select */}
-                  <button className="tool-button active">
-                    <div className="tool-icon-wrapper"><MousePointer2 size={16} /></div>
-                    <div className="tool-info">
-                      <span className="tool-title">Select Tool</span>
-                      <span className="tool-desc">Move &amp; resize</span>
-                    </div>
-                  </button>
-
-                  {/* Room shell */}
-                  <button className="tool-button" onClick={() => addRoom({ x: 150, y: 150, width: 200, height: 150 })}>
-                    <div className="tool-icon-wrapper"><PlusSquare size={16} /></div>
-                    <div className="tool-info">
-                      <span className="tool-title">Room Shell</span>
-                      <span className="tool-desc">Add a new room</span>
-                    </div>
-                  </button>
-
-                  {/* Furniture */}
-                  <button className="tool-button" onClick={() => addFurniture({ x: 200, y: 200, width: 100, height: 100, furnitureType: 'Bed' })}>
-                    <div className="tool-icon-wrapper" style={{ color: 'var(--status-warn)', backgroundColor: 'var(--status-warn-bg)' }}><Bed size={16} /></div>
-                    <div className="tool-info">
-                      <span className="tool-title">Add Bed</span>
-                      <span className="tool-desc">Place furniture</span>
-                    </div>
-                  </button>
-
-                  <button className="tool-button" onClick={() => addFurniture({ x: 200, y: 350, width: 60, height: 60, furnitureType: 'Chair' })}>
-                    <div className="tool-icon-wrapper" style={{ color: 'var(--status-warn)', backgroundColor: 'var(--status-warn-bg)' }}><Armchair size={16} /></div>
-                    <div className="tool-info">
-                      <span className="tool-title">Add Chair</span>
-                      <span className="tool-desc">Place furniture</span>
-                    </div>
-                  </button>
-
-                  <button className="tool-button" onClick={() => addFurniture({ x: 100, y: 350, width: 80, height: 80, furnitureType: 'Table' })}>
-                    <div className="tool-icon-wrapper" style={{ color: 'var(--status-warn)', backgroundColor: 'var(--status-warn-bg)' }}><Square size={16} /></div>
-                    <div className="tool-info">
-                      <span className="tool-title">Add Table</span>
-                      <span className="tool-desc">Place furniture</span>
-                    </div>
-                  </button>
-
-                  {/* Doorway */}
-                  <button className="tool-button" onClick={() => addDoorway({ x: 300, y: 150, width: 60, height: 20 })}>
-                    <div className="tool-icon-wrapper" style={{ color: 'var(--status-active)', backgroundColor: 'var(--status-active-bg)' }}><DoorOpen size={16} /></div>
-                    <div className="tool-info">
-                      <span className="tool-title">Add Doorway</span>
-                      <span className="tool-desc">Create entryways</span>
-                    </div>
-                  </button>
-
-                  {/* Sensor node */}
-                  <button className="tool-button" onClick={() => {
-                    // Place in centre of canvas; user drags into room
-                    addSensorNode(null, window.innerWidth / 2 - 120, window.innerHeight / 2 - 60);
-                  }}>
-                    <div className="tool-icon-wrapper" style={{ color: 'var(--brand)', backgroundColor: 'var(--brand-soft)' }}>
-                      <Wifi size={16} />
-                    </div>
-                    <div className="tool-info">
-                      <span className="tool-title">Place Sensor</span>
-                      <span className="tool-desc">Drag into a room</span>
-                    </div>
-                  </button>
-
-                  {/* ── Onboarding nudge when no rooms exist ────────────── */}
-                  {!hasRooms && (
-                    <div style={{
-                      margin: '8px 0', padding: '12px',
-                      background: 'var(--brand-soft)',
-                      border: '1px solid var(--brand-border)',
-                      borderRadius: '8px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--brand)', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
-                        <Radio size={13} /> Getting Started
-                      </div>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', lineHeight: 1.5 }}>
-                        Add rooms, then place sensor nodes inside them. Devices bind automatically when they connect.
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── Contextual actions (bottom of sidebar) ───────────── */}
-                  <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-
-                    {/* Room settings panel — shown when a logical room is selected */}
-                    {selectedLogicalRoom && (
-                      <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-base)', borderRadius: '8px', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <div style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 600 }}>Room Settings</div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                          <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Room Name</label>
-                          <input
-                            type="text"
-                            value={selectedLogicalRoom.name}
-                            onChange={e => updateLogicalRoom(selectedLogicalRoom.id, { name: e.target.value })}
-                            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)', padding: '0.4rem', borderRadius: '6px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box', outline: 'none' }}
-                          />
-                        </div>
-
-                        {/* Clean device assignment — no scan UI */}
-                        <RoomDeviceAssignment room={selectedLogicalRoom} />
-                      </div>
-                    )}
-
-                    {/* Selection actions: lock, rotate, delete */}
-                    {selectedIds.length > 0 && (
-                      <>
-                        <button className="tool-button" style={{ border: '1px solid var(--border-soft)' }} onClick={() => toggleLock(selectedIds)}>
-                          <div className="tool-icon-wrapper" style={{ color: 'var(--text-secondary)', background: 'var(--bg-raised)' }}>
-                            {allLocked ? <Unlock size={16} /> : <Lock size={16} />}
-                          </div>
-                          <div className="tool-info">
-                            <span className="tool-title" style={{ color: 'var(--text-primary)' }}>{allLocked ? 'Unlock Items' : 'Lock Items'}</span>
-                            <span className="tool-desc">Prevent movement</span>
-                          </div>
-                        </button>
-
-                        <button className="tool-button" style={{ border: '1px solid var(--border-soft)' }}
-                          onClick={() => rotateItems(selectedIds)} disabled={allLocked}>
-                          <div className="tool-icon-wrapper" style={{ color: allLocked ? 'var(--text-tertiary)' : 'var(--text-secondary)', background: 'var(--bg-raised)' }}><RotateCw size={16} /></div>
-                          <div className="tool-info">
-                            <span className="tool-title" style={{ color: allLocked ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>Rotate 90°</span>
-                            <span className="tool-desc">Spin selection</span>
-                          </div>
-                        </button>
-
-                        <button className="tool-button" style={{ border: '1px solid var(--status-alert-bg)' }} onClick={() => deleteItems(selectedIds)}>
-                          <div className="tool-icon-wrapper" style={{ color: 'var(--status-alert)', backgroundColor: 'var(--status-alert-bg)' }}><Minus size={16} /></div>
-                          <div className="tool-info">
-                            <span className="tool-title" style={{ color: 'var(--status-alert)' }}>Delete Items</span>
-                            <span className="tool-desc">Remove selected</span>
-                          </div>
-                        </button>
-                      </>
-                    )}
-                  </div>
-
-                </div>
-              </aside>
+        
+        {/* ── Persistent Sidebar ───────────────────────────────────────────── */}
+        <aside className="sidebar">
+          {/* ── Gateway Status Widget ── */}
+          <div style={{
+            margin: '1.25rem 0.75rem 0.75rem',
+            padding: '12px',
+            borderRadius: '12px',
+            background: gwConnected ? 'var(--status-active-bg)' : 'var(--status-alert-bg)',
+            border: `1px solid ${gwConnected ? 'var(--status-active)' : 'var(--status-alert)'}`,
+            display: 'flex', alignItems: 'center', gap: '10px',
+            flexWrap: 'wrap',
+          }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: gwConnected ? 'var(--status-active)' : 'var(--status-alert)',
+              boxShadow: gwConnected ? '0 0 8px var(--status-active)' : '0 0 8px var(--status-alert)',
+              flexShrink: 0,
+            }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: '0.78rem', fontWeight: 700,
+                color: gwConnected ? 'var(--status-active)' : 'var(--status-alert)',
+              }}>
+                {gwConnected ? 'Home Hub Connected' : 'Home Hub Disconnected'}
+              </div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                {gwConnected ? (connectedGateway.gatewayId || 'Active') : 'Check power or Wi-Fi'}
+              </div>
+            </div>
+            {!gwConnected && (
+              <button
+                onClick={() => scanGateway()}
+                disabled={gatewayScanning}
+                style={{
+                  width: '100%', marginTop: '8px',
+                  fontSize: '0.72rem', fontWeight: 600,
+                  padding: '6px 12px', borderRadius: '8px',
+                  border: 'none',
+                  background: 'var(--status-alert)',
+                  color: '#fff',
+                  cursor: gatewayScanning ? 'not-allowed' : 'pointer',
+                  opacity: gatewayScanning ? 0.6 : 1,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {gatewayScanning ? 'Connecting…' : 'Reconnect'}
+              </button>
             )}
+          </div>
 
-            {/* ── Canvas area ───────────────────────────────────────────────── */}
-            <div className="canvas-wrapper">
-              <Canvas theme={theme} />
+          {/* Designer Tools (Visible only on Designer page in EDIT mode) */}
+          {activePage === 'designer' && designerState === 'EDIT' && (
+            <div className="tools-list" style={{ marginTop: '0.5rem' }}>
+              <div className="sidebar-header">Tools</div>
+              
+              {/* Select */}
+              <button className="tool-button active">
+                <div className="tool-icon-wrapper"><MousePointer2 size={16} /></div>
+                <div className="tool-info">
+                  <span className="tool-title">Select Tool</span>
+                  <span className="tool-desc">Move &amp; resize</span>
+                </div>
+              </button>
 
-              {/* Bottom action bar */}
-              <div className="bottom-action-bar">
-                {designerState === 'EDIT' ? (
-                  <div className="floating-toolbar">
-                    {/* Undo / Redo */}
-                    <div style={{ display: 'flex', gap: '0.25rem', paddingRight: '0.5rem', borderRight: '1px solid var(--border-subtle)' }}>
-                      <button
-                        onClick={undo} title="Undo (Ctrl+Z)" disabled={past.length === 0}
-                        style={{ ...navBtn(past.length > 0), border: 'none', background: 'transparent' }}
-                      ><Undo2 size={16} /></button>
-                      <button
-                        onClick={redo} title="Redo (Ctrl+Y)" disabled={future.length === 0}
-                        style={{ ...navBtn(future.length > 0), border: 'none', background: 'transparent' }}
-                      ><Redo2 size={16} /></button>
-                    </div>
+              {/* Room shell */}
+              <button className="tool-button" onClick={() => addRoom({ x: 150, y: 150, width: 200, height: 150 })}>
+                <div className="tool-icon-wrapper"><PlusSquare size={16} /></div>
+                <div className="tool-info">
+                  <span className="tool-title">Room Shell</span>
+                  <span className="tool-desc">Add a new room</span>
+                </div>
+              </button>
 
-                    <button className="primary-button" style={{ background: 'var(--bg-raised)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', boxShadow: 'none' }}
-                      onClick={() => addRoom({ x: window.innerWidth / 2 - 250, y: window.innerHeight / 2 - 150, width: 200, height: 150 })}>
-                      <LayoutGrid size={16} /> Add Room
-                    </button>
+              {/* Furniture */}
+              <button className="tool-button" onClick={() => addFurniture({ x: 200, y: 200, width: 100, height: 100, furnitureType: 'Bed' })}>
+                <div className="tool-icon-wrapper" style={{ color: 'var(--status-warn)', backgroundColor: 'var(--status-warn-bg)' }}><Bed size={16} /></div>
+                <div className="tool-info">
+                  <span className="tool-title">Add Bed</span>
+                  <span className="tool-desc">Place furniture</span>
+                </div>
+              </button>
 
-                    {/* Place Sensor button */}
-                    <button className="primary-button"
-                      style={{ background: 'var(--brand-soft)', border: '1px solid var(--brand-border)', color: 'var(--brand)', boxShadow: 'none' }}
-                      onClick={() => addSensorNode(null, window.innerWidth / 2 - 120, window.innerHeight / 2 - 60)}>
-                      <Wifi size={16} /> Place Sensor
-                    </button>
+              <button className="tool-button" onClick={() => addFurniture({ x: 200, y: 350, width: 60, height: 60, furnitureType: 'Chair' })}>
+                <div className="tool-icon-wrapper" style={{ color: 'var(--status-warn)', backgroundColor: 'var(--status-warn-bg)' }}><Armchair size={16} /></div>
+                <div className="tool-info">
+                  <span className="tool-title">Add Chair</span>
+                  <span className="tool-desc">Place furniture</span>
+                </div>
+              </button>
 
-                    {/* Deploy gateway if none placed */}
-                    {!gatewayNode && (
-                      <button className="primary-button" style={{ background: 'var(--status-active-bg)', border: 'none', color: 'var(--status-active)', boxShadow: 'none' }}
-                        onClick={() => updateGatewayNode({ x: window.innerWidth / 2, y: 80 })}>
-                        <Radio size={16} /> Deploy Gateway
-                      </button>
-                    )}
+              <button className="tool-button" onClick={() => addFurniture({ x: 100, y: 350, width: 80, height: 80, furnitureType: 'Table' })}>
+                <div className="tool-icon-wrapper" style={{ color: 'var(--status-warn)', backgroundColor: 'var(--status-warn-bg)' }}><Square size={16} /></div>
+                <div className="tool-info">
+                  <span className="tool-title">Add Table</span>
+                  <span className="tool-desc">Place furniture</span>
+                </div>
+              </button>
 
-                    <div style={{ width: '1px', height: '24px', background: 'var(--border-subtle)', margin: '0 0.25rem' }}></div>
+              {/* Doorway */}
+              <button className="tool-button" onClick={() => addDoorway({ x: 300, y: 150, width: 60, height: 20 })}>
+                <div className="tool-icon-wrapper" style={{ color: 'var(--status-active)', backgroundColor: 'var(--status-active-bg)' }}><DoorOpen size={16} /></div>
+                <div className="tool-info">
+                  <span className="tool-title">Add Doorway</span>
+                  <span className="tool-desc">Create entryways</span>
+                </div>
+              </button>
 
-                    <button className="primary-button" onClick={() => { setDesignerState('VIEW'); useStore.getState().selectItem(null); }}>
-                      Save Layout
-                    </button>
+              {/* Device */}
+              <button className="tool-button" onClick={() => {
+                addSensorNode(null, window.innerWidth / 2 - 120, window.innerHeight / 2 - 60);
+              }}>
+                <div className="tool-icon-wrapper" style={{ color: 'var(--brand)', backgroundColor: 'var(--brand-soft)' }}>
+                  <Wifi size={16} />
+                </div>
+                <div className="tool-info">
+                  <span className="tool-title">Place Device</span>
+                  <span className="tool-desc">Drag into a room</span>
+                </div>
+              </button>
+
+              {/* Onboarding nudge */}
+              {!hasRooms && (
+                <div style={{
+                  margin: '8px 0', padding: '12px',
+                  background: 'var(--brand-soft)',
+                  border: '1px solid var(--brand-border)',
+                  borderRadius: '8px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--brand)', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
+                    <Radio size={13} /> Getting Started
                   </div>
-                ) : (
-                  <button className="primary-button" onClick={() => setDesignerState('EDIT')}>
-                    Edit Layout
-                  </button>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', lineHeight: 1.5 }}>
+                    Add rooms, then place devices inside them.
+                  </div>
+                </div>
+              )}
+
+              {/* Contextual actions */}
+              <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '1rem' }}>
+                {selectedLogicalRoom && (
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-base)', borderRadius: '8px', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 600 }}>Room Settings</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Room Name</label>
+                      <input
+                        type="text"
+                        value={selectedLogicalRoom.name}
+                        onChange={e => updateLogicalRoom(selectedLogicalRoom.id, { name: e.target.value })}
+                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)', padding: '0.4rem', borderRadius: '6px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box', outline: 'none' }}
+                      />
+                    </div>
+                    <RoomDeviceAssignment room={selectedLogicalRoom} />
+                  </div>
+                )}
+
+                {selectedIds.length > 0 && (
+                  <>
+                    <button className="tool-button" style={{ border: '1px solid var(--border-soft)' }} onClick={() => toggleLock(selectedIds)}>
+                      <div className="tool-icon-wrapper" style={{ color: 'var(--text-secondary)', background: 'var(--bg-raised)' }}>
+                        {allLocked ? <Unlock size={16} /> : <Lock size={16} />}
+                      </div>
+                      <div className="tool-info">
+                        <span className="tool-title" style={{ color: 'var(--text-primary)' }}>{allLocked ? 'Unlock Items' : 'Lock Items'}</span>
+                      </div>
+                    </button>
+                    <button className="tool-button" style={{ border: '1px solid var(--border-soft)' }} onClick={() => rotateItems(selectedIds)} disabled={allLocked}>
+                      <div className="tool-icon-wrapper" style={{ color: allLocked ? 'var(--text-tertiary)' : 'var(--text-secondary)', background: 'var(--bg-raised)' }}><RotateCw size={16} /></div>
+                      <div className="tool-info">
+                        <span className="tool-title" style={{ color: allLocked ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>Rotate 90°</span>
+                      </div>
+                    </button>
+                    <button className="tool-button" style={{ border: '1px solid var(--status-alert-bg)' }} onClick={() => deleteItems(selectedIds)}>
+                      <div className="tool-icon-wrapper" style={{ color: 'var(--status-alert)', backgroundColor: 'var(--status-alert-bg)' }}><Minus size={16} /></div>
+                      <div className="tool-info">
+                        <span className="tool-title" style={{ color: 'var(--status-alert)' }}>Delete Items</span>
+                      </div>
+                    </button>
+                  </>
                 )}
               </div>
             </div>
-          </>
-        ) : activePage === 'dashboard' ? (
-          <NetworkDashboard />
-        ) : activePage === 'settings' ? (
-          <Settings />
-        ) : null}
+          )}
+        </aside>
+
+        {/* ── Main View Area ───────────────────────────────────────────────── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+          
+          {/* Global Gateway Disconnection Banner */}
+          {connectedGateway && connectedGateway.status === 'Offline' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '10px',
+              padding: '10px 20px',
+              background: 'var(--status-alert-bg)',
+              borderBottom: '2px solid var(--status-alert)',
+              color: 'var(--status-alert)',
+              fontSize: '0.85rem', fontWeight: 600,
+              zIndex: 100,
+            }}>
+              <WifiOff size={18} />
+              <span>Home Hub Disconnected – Check power or Wi-Fi connection</span>
+            </div>
+          )}
+
+          {activePage === 'designer' ? (
+            <div className="canvas-wrapper">
+              <Canvas theme={theme} />
+              <div className="bottom-action-bar">
+                {designerState === 'EDIT' ? (
+                  <div className="floating-toolbar">
+                    <div style={{ display: 'flex', gap: '0.25rem', paddingRight: '0.5rem', borderRight: '1px solid var(--border-subtle)' }}>
+                      <button onClick={undo} title="Undo (Ctrl+Z)" disabled={past.length === 0} style={{ ...navBtn(past.length > 0), border: 'none', background: 'transparent' }}><Undo2 size={16} /></button>
+                      <button onClick={redo} title="Redo (Ctrl+Y)" disabled={future.length === 0} style={{ ...navBtn(future.length > 0), border: 'none', background: 'transparent' }}><Redo2 size={16} /></button>
+                    </div>
+                    <button className="primary-button" style={{ background: 'var(--bg-raised)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', boxShadow: 'none' }} onClick={() => addRoom({ x: window.innerWidth / 2 - 250, y: window.innerHeight / 2 - 150, width: 200, height: 150 })}><LayoutGrid size={16} /> Add Room</button>
+                    <button className="primary-button" style={{ background: 'var(--brand-soft)', border: '1px solid var(--brand-border)', color: 'var(--brand)', boxShadow: 'none' }} onClick={() => addSensorNode(null, window.innerWidth / 2 - 120, window.innerHeight / 2 - 60)}><Wifi size={16} /> Place Device</button>
+                    {!gatewayNode && <button className="primary-button" style={{ background: 'var(--status-active-bg)', border: 'none', color: 'var(--status-active)', boxShadow: 'none' }} onClick={() => updateGatewayNode({ x: window.innerWidth / 2, y: 80 })}><Radio size={16} /> Deploy Home Hub</button>}
+                    <div style={{ width: '1px', height: '24px', background: 'var(--border-subtle)', margin: '0 0.25rem' }}></div>
+                    <button className="primary-button" onClick={() => { setDesignerState('VIEW'); useStore.getState().selectItem(null); }}>Save Layout</button>
+                  </div>
+                ) : (
+                  <button className="primary-button" onClick={() => setDesignerState('EDIT')}>Edit Layout</button>
+                )}
+              </div>
+            </div>
+          ) : activePage === 'dashboard' ? (
+            <NetworkDashboard />
+          ) : activePage === 'settings' ? (
+            <Settings />
+          ) : null}
+        </div>
       </main>
     </div>
   );

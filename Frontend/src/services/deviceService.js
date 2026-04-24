@@ -13,14 +13,21 @@ export async function getDevices() {
   try {
     const res = await axios.get(`${API_BASE}/devices`);
     // Ensure the returned objects have the required frontend fields (like connectionStatus)
-    return res.data.data.map(d => ({
-      ...d,
-      id: d._id || `disc-${Date.now()}-${Math.random()}`,
-      connectionStatus: d.status === 'active' ? 'CONNECTED' : 'DISCONNECTED',
-      assignedRoomId: null,
-      assignedNodeId: null,
-      scannedAt: Date.now(),
-    }));
+    return res.data.data.map(d => {
+      let connectionStatus = 'CONNECTING';
+      if (d.lastSeen) {
+        const timeSince = Date.now() - new Date(d.lastSeen).getTime();
+        connectionStatus = timeSince <= 30000 ? 'CONNECTED' : 'DISCONNECTED';
+      }
+      return {
+        ...d,
+        id: d._id || `disc-${Date.now()}-${Math.random()}`,
+        connectionStatus,
+        assignedRoomId: null,
+        assignedNodeId: null,
+        scannedAt: Date.now(),
+      };
+    });
   } catch (error) {
     console.error('[DeviceService] Failed to fetch devices:', error);
     return [];
@@ -121,11 +128,59 @@ export async function scanForGateway() {
  * @returns {() => void} Unsubscribe function
  */
 export function subscribeToGatewayUpdates(callback) {
-  socket.on('gateway:update', (data) => {
+  socket.on('gateway:status', (data) => {
     callback(data);
   });
   return () => {
-    socket.off('gateway:update');
+    socket.off('gateway:status');
   };
 }
 
+/**
+ * Fetch current gateway status from backend.
+ * @returns {Promise<{ gateway: object | null }>}
+ */
+export async function getGatewayStatus() {
+  try {
+    const res = await axios.get(`${API_BASE}/gateway/status`);
+    return res.data.gateway || null;
+  } catch (error) {
+    console.error('[DeviceService] Failed to fetch gateway status:', error);
+    return null;
+  }
+}
+
+/**
+ * Rename a device (update its customName).
+ * @param {string} deviceId - The device's MAC-based ID
+ * @param {string} customName - New friendly name
+ * @returns {Promise<{ success: boolean, device?: object, error?: string }>}
+ */
+export async function renameDevice(deviceId, customName) {
+  try {
+    const res = await axios.patch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`, { customName });
+    return { success: true, device: res.data.data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.response?.data?.message || 'Failed to rename device',
+    };
+  }
+}
+
+/**
+ * Remove a device from the system.
+ * @param {string} deviceId - The device's MAC-based ID
+ * @returns {Promise<{ success: boolean, error?: string }>}
+ */
+export async function deleteDevice(deviceId) {
+  try {
+    await axios.delete(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.response?.data?.message || 'Failed to remove device',
+    };
+  }
+}

@@ -20,6 +20,7 @@ const HANDSHAKE_TIMEOUT = 3000;
  * @returns {{ success: boolean, gateway?: object, error?: string }}
  */
 const scanForGateway = async () => {
+  console.log('[Gateway Scan] Scanning for gateway...');
   let gatewayIp = null;
 
   // ── Step 1: mDNS Discovery ──────────────────────────────────────────────
@@ -38,9 +39,7 @@ const scanForGateway = async () => {
         );
         const ip = ipv4 || service.referer?.address || null;
 
-        console.log(
-          `[GatewayService] mDNS discovered: ${service.name} at ${ip}`
-        );
+        console.log(`[GatewayService] Gateway found at ${ip}`);
 
         browser.stop();
         bonjour.destroy();
@@ -58,21 +57,16 @@ const scanForGateway = async () => {
     });
   } catch (err) {
     if (err.message === 'GATEWAY_NOT_FOUND') {
-      return {
-        success: false,
-        error: 'GATEWAY_NOT_FOUND',
-        message: 'No EldReach gateway found on the network.',
-      };
+      console.log('[GatewayService] Fallback used: 192.168.1.100');
+      gatewayIp = '192.168.1.100';
+    } else {
+      throw err;
     }
-    throw err;
   }
 
   if (!gatewayIp) {
-    return {
-      success: false,
-      error: 'GATEWAY_NOT_FOUND',
-      message: 'Gateway discovered but no IP address available.',
-    };
+    console.log('[GatewayService] Fallback used: 192.168.1.100');
+    gatewayIp = '192.168.1.100';
   }
 
   // ── Step 2: MAC Address Handshake ───────────────────────────────────────
@@ -90,8 +84,8 @@ const scanForGateway = async () => {
     console.error(`[GatewayService] Handshake failed for ${gatewayIp}:`, err.message);
     return {
       success: false,
-      error: 'ID_HANDSHAKE_FAILED',
-      message: `Gateway found at ${gatewayIp} but MAC handshake failed.`,
+      error: 'GATEWAY_SCAN_FAILED',
+      message: 'Could not connect to Home Hub. Please check the connection.',
     };
   }
 
@@ -126,6 +120,17 @@ const scanForGateway = async () => {
   );
 
   console.log(`[GatewayService] Gateway upserted: ${gateway.gatewayId} @ ${gateway.ip}`);
+
+  const socketService = require('./socketService');
+  const io = socketService.getIO();
+  if (io) {
+    io.emit('gateway:status', {
+      gatewayId: gateway.gatewayId,
+      ip: gateway.ip,
+      status: gateway.status,
+      lastSeen: gateway.lastSeen,
+    });
+  }
 
   return {
     success: true,

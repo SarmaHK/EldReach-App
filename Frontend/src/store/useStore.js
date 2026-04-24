@@ -288,6 +288,84 @@ const useStore = create((set, get) => ({
     }
   },
 
+  evaluateTimeouts: () => {
+    const s = get();
+    
+    let changed = false;
+    const now = Date.now();
+    const OFFLINE_THRESHOLD = 30000;
+
+    // 1. Evaluate Gateway Status
+    let gatewayOffline = false;
+    if (s.connectedGateway) {
+      if (s.connectedGateway.lastSeen) {
+        const gwTimeSince = now - new Date(s.connectedGateway.lastSeen).getTime();
+        gatewayOffline = gwTimeSince > OFFLINE_THRESHOLD;
+      }
+      
+      const newGwStatus = gatewayOffline ? 'Offline' : 'Connected';
+      if (s.connectedGateway.status !== newGwStatus) {
+        // We defer state update to avoid loops, or just update it directly
+        s.connectedGateway.status = newGwStatus;
+        changed = true;
+      }
+    } else {
+      gatewayOffline = true;
+    }
+
+    if (!s.discoveredDevices.length) return;
+
+    const nextDevices = s.discoveredDevices.map(d => {
+      let nextStatus = 'waiting';
+      let nextReason = null;
+      
+      if (gatewayOffline) {
+        nextStatus = 'offline';
+        nextReason = 'hub_disconnected';
+      } else if (d.lastSeen) {
+        const timeSince = now - new Date(d.lastSeen).getTime();
+        if (timeSince < 15000) {
+          nextStatus = 'active';
+        } else {
+          nextStatus = 'offline';
+          nextReason = 'no_data';
+        }
+      }
+
+      if (d.connectionStatus !== nextStatus || d.statusReason !== nextReason) {
+        changed = true;
+        return { ...d, connectionStatus: nextStatus, statusReason: nextReason };
+      }
+      return d;
+    });
+
+    if (changed) {
+      // We also need to update sensors if devices go offline
+      const nextSensors = s.sensors.map(n => {
+        if (!n.assignedDeviceId) return n;
+        const dev = nextDevices.find(d => d.deviceId === n.assignedDeviceId);
+        if (!dev) return n;
+
+        let nextNodeStatus = dev.connectionStatus;
+        if (dev.connectionStatus === 'offline' && dev.statusReason === 'hub_disconnected') {
+          nextNodeStatus = 'NO_HUB';
+        } else if (dev.connectionStatus === 'offline' && dev.statusReason === 'no_data') {
+          nextNodeStatus = 'DISCONNECTED';
+        } else if (dev.connectionStatus === 'active') {
+          nextNodeStatus = 'CONNECTED';
+        } else if (dev.connectionStatus === 'waiting') {
+          nextNodeStatus = 'CONNECTING';
+        }
+
+        if (n.status !== nextNodeStatus) {
+          return { ...n, status: nextNodeStatus };
+        }
+        return n;
+      });
+      set({ discoveredDevices: nextDevices, sensors: nextSensors, connectedGateway: s.connectedGateway ? { ...s.connectedGateway } : null });
+    }
+  },
+
   updateDeviceInStore: (device) => {
     const s = get();
     const now = Date.now();
@@ -300,20 +378,37 @@ const useStore = create((set, get) => ({
     let assignedNodeId = null;
     let assignedRoomId = null;
 
+    // Evaluate gateway
+    let gatewayOffline = false;
+    if (s.connectedGateway && s.connectedGateway.lastSeen) {
+      const gwTimeSince = Date.now() - new Date(s.connectedGateway.lastSeen).getTime();
+      gatewayOffline = gwTimeSince > 30000;
+    } else if (!s.connectedGateway) {
+      gatewayOffline = true;
+    }
+
+    let nextStatus = 'CONNECTING';
+    if (gatewayOffline) {
+      nextStatus = 'NO_HUB';
+    } else if (device.lastSeen) {
+      const timeSince = Date.now() - new Date(device.lastSeen).getTime();
+      nextStatus = timeSince <= 30000 ? 'CONNECTED' : 'DISCONNECTED';
+    }
+
     if (existingDeviceIdx >= 0) {
       assignedNodeId = updatedDevices[existingDeviceIdx].assignedNodeId;
       assignedRoomId = updatedDevices[existingDeviceIdx].assignedRoomId;
       updatedDevices[existingDeviceIdx] = {
         ...updatedDevices[existingDeviceIdx],
         ...device,
-        connectionStatus: device.status === 'active' ? 'CONNECTED' : 'DISCONNECTED',
+        connectionStatus: nextStatus,
       };
     } else {
       // New device! Add to pool
       const newDevice = {
         ...device,
         id: device._id || `disc-${now}-${Math.random()}`,
-        connectionStatus: device.status === 'active' ? 'CONNECTED' : 'DISCONNECTED',
+        connectionStatus: nextStatus,
         assignedNodeId: null,
         assignedRoomId: null,
         scannedAt: now,
@@ -342,13 +437,13 @@ const useStore = create((set, get) => ({
 
     // Update monitoring state if assigned
     if (assignedRoomId && assignedNodeId) {
-      const roomStatus = device.status === 'active' ? 'NORMAL' : 'INACTIVE';
+      const roomStatus = nextStatus === 'CONNECTED' ? 'NORMAL' : 'INACTIVE';
       const logs = newMonitoring[assignedRoomId]?.logs || [];
 
       newMonitoring[assignedRoomId] = {
         ...(newMonitoring[assignedRoomId] || {}),
         status: roomStatus,
-        connectionStatus: device.status === 'active' ? 'CONNECTED' : 'DISCONNECTED',
+        connectionStatus: nextStatus,
         deviceId: device.deviceId,
         lastActive: device.lastActive ? new Date(device.lastActive).getTime() : now,
         lastSeen: device.lastSeen ? new Date(device.lastSeen).getTime() : now,

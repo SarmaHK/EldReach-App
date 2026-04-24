@@ -1,37 +1,61 @@
 const Device = require('../models/Device');
+const Gateway = require('../models/Gateway');
+const axios = require('axios');
 const { createAlert } = require('./alertService');
 const socketService = require('./socketService');
 const logService = require('./logService');
 const { processSensorData } = require('./processingService');
 
-// Inactivity threshold: 1 minute (will be configurable later)
-const INACTIVITY_LIMIT = 60 * 1000;
-
 /**
- * Create or update a device with sensor data,
- * then evaluate inactivity state.
+ * Handle incoming ESP32 telemetry data
  */
-const updateDevice = async (data) => {
-  const { nodeId, gatewayId, roomId, sensors } = data;
+const handleIncomingData = async (data) => {
+  const { deviceId, gatewayId, sensors } = data;
   const now = new Date();
 
-  // Fetch the current device state BEFORE updating (to detect state changes)
-  const previousDevice = await Device.findOne({ deviceId: nodeId });
-  const previousStatus = previousDevice ? previousDevice.status : null;
+  // Normalize deviceId
+  const normalizedDeviceId = deviceId ? deviceId.toUpperCase() : null;
+
+  if (!normalizedDeviceId) {
+    throw new Error('deviceId is required');
+  }
+
+  // Fetch the current device state
+  console.log(`[DeviceService] Matching device with ID: ${normalizedDeviceId}`);
+  let device = await Device.findOne({ deviceId: normalizedDeviceId });
+
+  if (!device) {
+    console.log(`[DeviceService] Unknown device: ${normalizedDeviceId}`);
+    return null;
+  }
+  
+  console.log(`[DeviceService] Device matched successfully: ${device._id}`);
 
   // Build the update fields
   const updateFields = {
     lastSeen: now,
-    status: 'active', // Device is actively sending data
     lastActive: now,
   };
 
   if (gatewayId) {
     updateFields.gatewayId = gatewayId;
-  }
-
-  if (roomId) {
-    updateFields.roomId = roomId;
+    
+    // Update Gateway heartbeat
+    const gatewayDoc = await Gateway.findOneAndUpdate(
+      { gatewayId },
+      { $set: { lastSeen: now, status: 'online' } },
+      { new: true, upsert: true }
+    );
+    
+    const io = socketService.getIO();
+    if (io && gatewayDoc) {
+      io.emit('gateway:status', {
+        gatewayId: gatewayDoc.gatewayId,
+        ip: gatewayDoc.ip,
+        status: gatewayDoc.status,
+        lastSeen: gatewayDoc.lastSeen,
+      });
+    }
   }
 
   if (sensors) {
@@ -42,47 +66,41 @@ const updateDevice = async (data) => {
   // Process sensor data (intelligence layer)
   if (sensors) {
     let roomBoundary = [];
-    if (previousDevice && previousDevice.roomId) {
-      const room = await require('../models/Room').findOne({ roomId: previousDevice.roomId });
+    if (device.roomId) {
+      const room = await require('../models/Room').findOne({ roomId: device.roomId });
       if (room && room.boundary && room.boundary.length >= 3) {
         roomBoundary = room.boundary;
       }
     }
 
-    const processed = processSensorData(previousDevice, sensors, roomBoundary);
+    const processed = processSensorData(device, sensors, roomBoundary);
     updateFields.processed = processed;
 
     if (processed.fallDetected) {
       await createAlert({
-        deviceId: nodeId,
+        deviceId: normalizedDeviceId,
         type: 'fall',
         message: 'Possible fall detected',
       });
     }
   }
 
-  // Upsert the device
-  let device = await Device.findOneAndUpdate(
-    { deviceId: nodeId },
-    { 
-      $set: updateFields,
-      $setOnInsert: { deviceId: nodeId }
-    },
+  // Update the device
+  device = await Device.findOneAndUpdate(
+    { deviceId: normalizedDeviceId },
+    { $set: updateFields },
     {
       new: true,
-      upsert: true,
       runValidators: true,
     }
   );
 
-  // Evaluate inactivity after the update
-  device = await checkInactivity(device, previousStatus);
-
   // Emit real-time update
-  try {
-    socketService.getIO().emit('device:update', device);
-  } catch (error) {
-    console.warn('Socket.IO not initialized, skipping emit');
+  console.log(`[DeviceService] Device updated successfully in DB: ${normalizedDeviceId}`);
+  const io = socketService.getIO();
+  if (io) {
+    io.emit('device:update', device);
+    console.log(`[Socket] Emitted device:update for ${device.deviceId}`);
   }
 
   // Check if mapping is in progress and collect points
@@ -102,94 +120,128 @@ const updateDevice = async (data) => {
 };
 
 /**
- * Check if a device should be marked inactive
- * based on how long since it was last active.
- *
- * Only evaluates if lastActive exists (device has been active before).
- * Only creates an alert on state CHANGE (active → inactive), not repeatedly.
- */
-const checkInactivity = async (device, previousStatus) => {
-  // Skip if device has never been active
-  if (!device.lastActive) {
-    return device;
-  }
-
-  // Skip if already inactive (no state change possible)
-  if (device.status === 'inactive') {
-    return device;
-  }
-
-  const now = new Date();
-  const timeSinceActive = now.getTime() - device.lastActive.getTime();
-
-  if (timeSinceActive > INACTIVITY_LIMIT) {
-    device.status = 'inactive';
-    await device.save();
-
-    // Only create alert if this is a STATE CHANGE (was active, now inactive)
-    if (previousStatus === 'active') {
-      await createAlert({
-        deviceId: device.deviceId,
-        type: 'inactivity',
-        message: `No activity detected for ${Math.round(timeSinceActive / 1000)} seconds`,
-      });
-    }
-
-    console.log(`[Inactivity] Device ${device.deviceId} marked inactive (idle for ${Math.round(timeSinceActive / 1000)}s)`);
-  }
-
-  return device;
-};
-
-/**
  * Get all devices, sorted by most recent lastSeen.
  */
 const getAllDevices = async () => {
   return Device.find().sort({ lastSeen: -1 });
 };
 
-const registerDevice = async ({ deviceId, gatewayId, roomId }) => {
+const registerDevice = async ({ deviceId, gatewayId, roomId, customName }) => {
   const now = new Date();
+  const normalizedId = deviceId.toUpperCase();
   
-  // Check if device already exists
-  let device = await Device.findOne({ deviceId });
+  // ── Step 1: Link with Physical Gateway ──
+  const gateway = await Gateway.findOne({ gatewayId });
+  if (!gateway) {
+    throw new Error('HOME_HUB_NOT_FOUND');
+  }
+
+  const rawMac = normalizedId.replace(/:/g, "").toUpperCase();
+  console.log(`[Device Registration] Sending MAC ${rawMac} to gateway at ${gateway.ip}`);
+
+  try {
+    const response = await axios.get(`http://${gateway.ip}/link-sensor?mac=${rawMac}`, { timeout: 5000 });
+    console.log(`[Device Registration] Gateway response:`, response.data);
+  } catch (err) {
+    console.error(`[Device Registration] Gateway connection failed:`, err.message);
+    throw new Error('GATEWAY_LINK_FAILED');
+  }
+
+  // ── Step 2: Save to Database ──
+  let device = await Device.findOne({ deviceId: normalizedId });
   let isNew = false;
   
   if (device) {
-    // Update existing device
     device.gatewayId = gatewayId;
     if (roomId) device.roomId = roomId;
-    device.lastSeen = now;
+    if (customName !== undefined) device.customName = customName;
+    device.lastSeen = null;
     await device.save();
   } else {
     isNew = true;
-    // Create new device
     device = new Device({
-      deviceId,
+      deviceId: normalizedId,
       gatewayId,
       roomId: roomId || null,
-      status: 'inactive',
-      lastSeen: now,
-      lastActive: now,
+      customName: customName || null,
+      lastSeen: null,
+      lastActive: null,
       sensors: {}
     });
     await device.save();
   }
 
   // Notify clients
-  socketService.emitToAll('device:update', {
-    deviceId: device.deviceId,
-    gatewayId: device.gatewayId,
-    roomId: device.roomId,
-    status: device.status,
-    lastSeen: device.lastSeen,
-  });
+  const io = socketService.getIO();
+  if (io) {
+    io.emit('device:update', {
+      deviceId: device.deviceId,
+      gatewayId: device.gatewayId,
+      roomId: device.roomId,
+      customName: device.customName,
+      lastSeen: device.lastSeen,
+    });
+    console.log(`[Socket] Emitted device:update for registered device ${device.deviceId}`);
+  }
 
+  console.log(`[Device Registration] Successfully registered ${normalizedId}`);
   return { device, isNew };
 };
 
+/**
+ * Rename a device's customName.
+ * @param {string} deviceId - The device's MAC-based ID
+ * @param {string} customName - New friendly name
+ */
+const renameDevice = async (deviceId, customName) => {
+  const device = await Device.findOne({ deviceId });
+  if (!device) {
+    throw new Error('Device not found');
+  }
+
+  device.customName = customName || null;
+  await device.save();
+
+  // Broadcast update
+  const io = socketService.getIO();
+  if (io) {
+    io.emit('device:update', {
+      deviceId: device.deviceId,
+      gatewayId: device.gatewayId,
+      roomId: device.roomId,
+      customName: device.customName,
+      lastSeen: device.lastSeen,
+    });
+    console.log(`[Device] Renamed ${deviceId} → "${customName}"`);
+  }
+
+  return device;
+};
+
+/**
+ * Remove a device from the system.
+ * @param {string} deviceId - The device's MAC-based ID
+ */
+const deleteDevice = async (deviceId) => {
+  const device = await Device.findOneAndDelete({ deviceId });
+  if (!device) {
+    throw new Error('Device not found');
+  }
+
+  // Broadcast removal
+  const io = socketService.getIO();
+  if (io) {
+    io.emit('device:removed', { deviceId });
+    console.log(`[Device] Removed ${deviceId}`);
+  }
+
+  return device;
+};
+
 module.exports = {
-  updateDevice,
+  handleIncomingData,
   getAllDevices,
   registerDevice,
+  renameDevice,
+  deleteDevice,
 };

@@ -11,6 +11,7 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
   const connectedGateway = useStore(s => s.connectedGateway);
 
   const [macAddress, setMacAddress] = useState('');
+  const [customName, setCustomName] = useState('');
   const [roomId, setRoomId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -23,19 +24,19 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
     setError('');
 
     if (!macAddress.trim()) {
-      setError('Please scan or enter a MAC address.');
+      setError('Please find and enter a device code.');
       return;
     }
 
     // MAC address validation: XX:XX:XX:XX:XX:XX
     const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
     if (!macRegex.test(macAddress.trim())) {
-      setError('Invalid MAC address format. Expected XX:XX:XX:XX:XX:XX');
+      setError('Invalid device code format. Expected 12 characters (e.g. 00:1B:44:11:3A:B7)');
       return;
     }
 
     if (!connectedGateway?.gatewayId) {
-      setError('No gateway connected. Please scan for a gateway first.');
+      setError('No home hub connected. Please find your home hub first.');
       return;
     }
 
@@ -49,6 +50,7 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
           deviceId: macAddress.trim(),
           gatewayId: connectedGateway.gatewayId,
           roomId: roomId.trim() || undefined,
+          customName: customName.trim() || undefined,
         }),
       });
 
@@ -59,14 +61,15 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
         setTimeout(() => {
           setSuccess(false);
           setMacAddress('');
+          setCustomName('');
           setRoomId('');
           onClose();
         }, 1500);
       } else {
-        setError(data.message || 'Failed to register node.');
+        setError(data.message || 'Something went wrong. Please try again.');
       }
     } catch (err) {
-      setError('Could not reach the backend. Is the server running?');
+      setError('Something went wrong. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -87,12 +90,12 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
             </div>
             <div>
               <h2 className="modal__title">
-                {mode === 'manual' ? 'Add Node Manually' : 'Register Sensor Node'}
+                {mode === 'manual' ? 'Add Device Manually' : 'Add Device'}
               </h2>
               <p className="modal__subtitle">
                 {mode === 'manual' 
-                  ? 'Enter the 12-character MAC address of the sensor node' 
-                  : 'Scan the QR code on your sensor to pair it with the gateway'}
+                  ? 'Enter the 12-character device code' 
+                  : 'Find the device code on your device or QR label'}
               </p>
             </div>
           </div>
@@ -106,14 +109,14 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
           {/* Gateway Banner */}
           <div className="modal__info-box" style={{ background: 'var(--status-active-bg)', color: 'var(--status-active)', border: '1px solid var(--status-active)' }}>
             <Radio size={14} />
-            <span>Linking to Gateway: <strong>{connectedGateway?.gatewayId || 'Unknown'}</strong></span>
+            <span>Linking to Home Hub: <strong>{connectedGateway?.gatewayId || 'Unknown'}</strong></span>
           </div>
 
           {/* MAC Address (Simulated QR) */}
           <div className="modal__field">
             <label className="modal__label">
               <QrCode size={14} />
-              MAC Address <span className="modal__required">*</span>
+              Device Code <span className="modal__required">*</span>
             </label>
             <input
               type="text"
@@ -124,7 +127,25 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
               autoFocus
             />
             <span className="modal__hint">
-              {mode === 'manual' ? 'Format: XX:XX:XX:XX:XX:XX' : 'Scan QR code or enter manually'}
+              {mode === 'manual' ? 'Format: 12-character code (XX:XX:XX:XX:XX:XX)' : 'Find the device code on your device'}
+            </span>
+          </div>
+
+          {/* Custom Name */}
+          <div className="modal__field">
+            <label className="modal__label">
+              <DoorOpen size={14} />
+              Room Name <span className="modal__optional">(optional)</span>
+            </label>
+            <input
+              type="text"
+              className="modal__input"
+              placeholder="e.g. Kitchen, Living Room"
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+            />
+            <span className="modal__hint">
+              Assign a friendly name to this device
             </span>
           </div>
 
@@ -163,7 +184,7 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
           )}
           {success && (
             <div className="modal__alert modal__alert--success">
-              ✓ Node registered successfully!
+              ✓ Device added successfully!
             </div>
           )}
 
@@ -177,7 +198,7 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
               className="modal__btn-primary"
               disabled={submitting || success}
             >
-              {submitting ? 'Registering...' : 'Register Node'}
+              {submitting ? 'Saving...' : 'Save'}
             </button>
           </div>
         </form>

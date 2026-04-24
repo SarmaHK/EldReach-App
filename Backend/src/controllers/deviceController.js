@@ -1,30 +1,34 @@
 const deviceService = require('../services/deviceService');
 
 /**
- * @desc    Create or update a device
+ * @desc    Handle incoming ESP32 telemetry data
  * @route   POST /api/devices
  */
-const upsertDevice = async (req, res) => {
+const handleIncomingTelemetry = async (req, res) => {
   try {
-    const { nodeId, gatewayId, roomId, sensors } = req.body;
+    const { deviceId, gatewayId, status, timestamp, sensors } = req.body;
 
-    if (!nodeId) {
+    if (!deviceId) {
       return res.status(400).json({
-        status: 'error',
-        message: 'nodeId is required',
+        success: false,
+        message: 'deviceId is required',
       });
     }
 
-    const device = await deviceService.updateDevice(req.body);
+    console.log("Incoming:", req.body);
+    console.log(`[DeviceController] Incoming telemetry from gateway ${gatewayId} for device ${deviceId}`);
+    console.log(`[DeviceController] Payload:`, JSON.stringify(req.body));
+
+    await deviceService.handleIncomingData(req.body);
 
     res.status(200).json({
-      status: 'success',
-      data: device,
+      success: true,
     });
   } catch (error) {
+    console.error('[DeviceController] handleIncomingTelemetry error:', error);
     res.status(500).json({
-      status: 'error',
-      message: error.message || 'Failed to upsert device',
+      success: false,
+      message: 'Failed to process telemetry',
     });
   }
 };
@@ -56,7 +60,7 @@ const getDevices = async (req, res) => {
  */
 const registerDevice = async (req, res) => {
   try {
-    const { deviceId, gatewayId, roomId } = req.body;
+    const { deviceId, gatewayId, roomId, customName } = req.body;
 
     if (!deviceId || !gatewayId) {
       return res.status(400).json({
@@ -65,30 +69,84 @@ const registerDevice = async (req, res) => {
       });
     }
 
-    const { device, isNew } = await deviceService.registerDevice({ deviceId, gatewayId, roomId });
+    const { device, isNew } = await deviceService.registerDevice({ deviceId, gatewayId, roomId, customName });
 
-    if (!isNew) {
-      return res.status(409).json({
-        status: 'error',
-        message: 'Device already registered',
-        data: device,
-      });
-    }
-
-    res.status(201).json({
+    res.status(isNew ? 201 : 200).json({
       status: 'success',
       data: device,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error('[DeviceController] Registration error:', error.message);
+    
+    let statusCode = 500;
+    if (error.message === 'HOME_HUB_NOT_FOUND') statusCode = 404;
+    if (error.message === 'GATEWAY_LINK_FAILED') statusCode = 502;
+
+    res.status(statusCode).json({
       status: 'error',
       message: error.message || 'Failed to register device',
     });
   }
 };
 
+/**
+ * @desc    Rename a device (update customName)
+ * @route   PATCH /api/devices/:deviceId
+ */
+const renameDevice = async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const { customName } = req.body;
+
+    if (customName === undefined) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'customName is required',
+      });
+    }
+
+    const device = await deviceService.renameDevice(deviceId, customName);
+
+    res.status(200).json({
+      status: 'success',
+      data: device,
+    });
+  } catch (error) {
+    const statusCode = error.message === 'Device not found' ? 404 : 500;
+    res.status(statusCode).json({
+      status: 'error',
+      message: error.message || 'Failed to rename device',
+    });
+  }
+};
+
+/**
+ * @desc    Remove a device from the system
+ * @route   DELETE /api/devices/:deviceId
+ */
+const deleteDevice = async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    await deviceService.deleteDevice(deviceId);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Device removed successfully',
+    });
+  } catch (error) {
+    const statusCode = error.message === 'Device not found' ? 404 : 500;
+    res.status(statusCode).json({
+      status: 'error',
+      message: error.message || 'Failed to remove device',
+    });
+  }
+};
+
 module.exports = {
-  upsertDevice,
+  handleIncomingTelemetry,
   getDevices,
   registerDevice,
+  renameDevice,
+  deleteDevice,
 };

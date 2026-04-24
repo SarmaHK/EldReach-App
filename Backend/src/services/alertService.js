@@ -13,10 +13,10 @@ const createAlert = async ({ deviceId, type, message }) => {
 
   console.log(`[Alert] ${type} alert created for device ${deviceId}`);
 
-  try {
-    socketService.getIO().emit('alert:new', alert);
-  } catch (error) {
-    console.warn('Socket.IO not initialized, skipping emit');
+  const io = socketService.getIO();
+  if (io) {
+    io.emit('alert:new', alert);
+    console.log(`[Socket] Emitted alert:new for device ${deviceId}`);
   }
 
   return alert;

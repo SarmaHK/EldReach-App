@@ -36,9 +36,11 @@ const STATUS_CFG = {
   INACTIVE:      { label: 'Quiet',            color: C.warn,    bg: C.warnBg,    border: C.warnBorder,    icon: <Clock size={13}/> },
   ALERT:         { label: 'Needs attention',  color: C.alert,   bg: C.alertBg,   border: C.alertBorder,   icon: <AlertTriangle size={13}/> },
   DISCONNECTED:  { label: 'Offline',          color: C.offline, bg: C.offlineBg, border: C.offlineBorder, icon: <WifiOff size={13}/> },
-  connected:     { label: 'Active',           color: C.active,  bg: C.activeBg,  border: C.activeBorder,  icon: <Wifi size={13}/> },
-  not_connected: { label: 'Disconnected',     color: C.offline, bg: C.offlineBg, border: C.offlineBorder, icon: <WifiOff size={13}/> },
-  no_sensor:     { label: 'No sensor',        color: C.text3,   bg: 'transparent', border: C.border,      icon: null },
+  connected:     { label: 'Connected',        color: C.active,  bg: C.activeBg,  border: C.activeBorder,  icon: <Wifi size={13}/> },
+  waiting:       { label: 'Connecting to device...', color: C.warn, bg: C.warnBg, border: C.warnBorder, icon: <Clock size={13}/> },
+  hub_disconnected: { label: 'Offline (Hub disconnected)', color: C.alert, bg: C.alertBg, border: C.alertBorder, icon: <WifiOff size={13}/> },
+  offline:       { label: 'Offline',          color: C.offline, bg: C.offlineBg, border: C.offlineBorder, icon: <WifiOff size={13}/> },
+  no_sensor:     { label: 'No device',        color: C.text3,   bg: 'transparent', border: C.border,      icon: null },
 };
 
 const StatusPill = ({ status }) => {
@@ -113,8 +115,8 @@ const RoomCard = ({ row, expanded, onToggle }) => {
             </div>
             <div style={{ color: C.text3, fontSize: '0.72rem' }}>
               {row.nodeCount === 0
-                ? 'No sensors placed'
-                : `${row.boundCount} of ${row.nodeCount} sensor${row.nodeCount !== 1 ? 's' : ''} active`}
+                ? 'No devices placed'
+                : `${row.boundCount} of ${row.nodeCount} device${row.nodeCount !== 1 ? 's' : ''} working`}
             </div>
           </div>
         </div>
@@ -141,7 +143,7 @@ const RoomCard = ({ row, expanded, onToggle }) => {
           <div>
             <div style={{ fontSize: '0.7rem', color: C.text3, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem' }}>Device</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <Row label="ID" value={<span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: C.brand }}>{row.deviceId ?? '—'}</span>} />
+              <Row label="Device" value={<span style={{ fontSize: '0.78rem', color: C.brand, fontWeight: 500 }}>{row.deviceName ?? '—'}</span>} />
               <Row label="Connection" value={<StatusPill status={row.hwStatus} />} />
               <Row label="Last seen" value={<span style={{ color: C.text2, fontSize: '0.78rem' }}>{relTime(row.lastSeen)}</span>} />
               <Row label="Last activity" value={<span style={{ color: C.text2, fontSize: '0.78rem' }}>{relTime(row.lastActive)}</span>} />
@@ -188,7 +190,7 @@ const SystemHero = ({ status, gatewayStats, alertCount, logicalRooms, sensors, d
   const activeDevices = discoveredDevices?.filter(d => d.connectionStatus === 'CONNECTED').length || 0;
 
   const statusMsg = status === 'HEALTHY'  ? 'Everything looks good.'
-                  : status === 'DEGRADED' ? 'Some sensors need attention.'
+                  : status === 'DEGRADED' ? 'Some devices need attention.'
                   : 'Immediate attention needed.';
   const statusColor = status === 'HEALTHY' ? C.active : status === 'DEGRADED' ? C.warn : C.alert;
 
@@ -239,7 +241,7 @@ const SystemHero = ({ status, gatewayStats, alertCount, logicalRooms, sensors, d
       }}>
         <Shield size={15} color={C.brand} />
         <div>
-          <div style={{ fontSize: '0.73rem', color: C.text2, fontWeight: 500 }}>Gateway · {gatewayStats ? new Date(gatewayStats.lastSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'}</div>
+          <div style={{ fontSize: '0.73rem', color: C.text2, fontWeight: 500 }}>Home Hub · {gatewayStats ? new Date(gatewayStats.lastSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'}</div>
           <div style={{ fontSize: '0.65rem', color: C.text3 }}>System running normally</div>
         </div>
         <div style={{ marginLeft: 'auto' }}>
@@ -290,8 +292,11 @@ const NetworkDashboard = () => {
 
     let hwStatus = 'no_sensor';
     if (primaryNode) {
-      hwStatus = (primaryNode.status === 'CONNECTED' || primaryNode.status === 'INACTIVE')
-        ? 'connected' : 'not_connected';
+      hwStatus = primaryNode.status === 'CONNECTED' ? 'connected'
+        : primaryNode.status === 'IDLE' ? 'idle'
+        : primaryNode.status === 'CONNECTING' ? 'waiting'
+        : primaryNode.status === 'NO_HUB' ? 'hub_disconnected'
+        : 'offline';
     }
 
     const worstStatus = (() => {
@@ -302,8 +307,16 @@ const NetworkDashboard = () => {
       return 'NORMAL';
     })();
 
+    // Compute friendly device name
+    const matchedDevice = discoveredDevices.find(d => d.deviceId === deviceId);
+    const deviceName = matchedDevice?.customName
+      ? `${matchedDevice.customName} Device`
+      : deviceId
+        ? `Device ${deviceId.replace(/:/g, '').slice(-4)}`
+        : null;
+
     return {
-      roomId: lr.id, roomName: lr.name, deviceId, hwStatus,
+      roomId: lr.id, roomName: lr.name, deviceId, deviceName, hwStatus,
       status: worstStatus,
       connectionStatus: primaryNode?.status === 'DISCONNECTED' ? 'DISCONNECTED' : primaryNode ? 'CONNECTED' : null,
       activity: monState.logs ?? [],
@@ -381,7 +394,7 @@ const NetworkDashboard = () => {
           </div>
           <div style={{ color: C.text3, fontSize: '0.78rem', marginTop: '0.35rem' }}>
             {logicalRooms.length === 0
-              ? 'Switch to Room Architect to set up your floor plan and place sensors.'
+              ? 'Switch to Room Architect to set up your floor plan and place devices.'
               : 'Try a different search term.'}
           </div>
         </div>
