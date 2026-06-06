@@ -6,17 +6,74 @@ EldReach is a **production-oriented IoT backend system** designed to monitor hum
 
 # 🧠 Architecture Overview
 
-EldReach follows a **gateway–node architecture**:
+EldReach follows a **Gateway-WebSocket architecture**:
 
 ```text
-Sensor Nodes → Gateway → Backend → Database → Frontend
+Sensor Nodes → Central Hub (Gateway) → (WebSocket) → Backend → Database → Frontend
 ```
 
 ### 🔹 Key Concept
 
 * **Sensor Node = Device = Room**
 * Each node represents one physical room and sends processed sensor data.
-* The **gateway** is only responsible for communication (not treated as a device).
+* The **Gateway** is the central hub in the home that aggregates data from sensors and maintains a persistent, bidirectional WebSocket connection with the backend.
+
+---
+
+# 🔌 How to Connect the System
+
+The architecture relies on a strict flow for connecting the Gateway to the Backend, and then verifying Sensor Nodes through the Gateway.
+
+## 1. Connecting the Gateway (Central Hub)
+
+The backend exposes a dedicated raw WebSocket server on port `5001` exclusively for Gateway communication. 
+
+**Firmware Flow:**
+1. The Gateway connects to the backend: 
+   `ws://<backend-ip>:5001?token=eldreach-gw-secret-2026`
+2. Immediately upon connecting, the Gateway must register itself:
+   ```json
+   {
+     "type": "REGISTER_GATEWAY",
+     "gatewayId": "GW-MAC-ADDRESS",
+     "systemId": "HOME001"
+   }
+   ```
+3. The Gateway must send a heartbeat every 30 seconds to keep the connection alive:
+   ```json
+   {
+     "type": "HEARTBEAT",
+     "gatewayId": "GW-MAC-ADDRESS"
+   }
+   ```
+*(If the backend misses heartbeats for 60 seconds, the Gateway is marked offline).*
+
+## 2. Connecting Sensor Nodes (Device Registration)
+
+Sensors are linked to the system via the Web Application.
+
+**Workflow:**
+1. The user clicks "Add Device" in the web app and enters the Sensor's MAC Address.
+2. The Frontend sends a request to the Backend.
+3. The Backend creates a `REGISTERED` record in the database.
+4. The Backend instantly sends a `VERIFY_SENSOR` command over the WebSocket to the Gateway:
+   ```json
+   {
+     "type": "VERIFY_SENSOR",
+     "macAddress": "AA:BB:CC:DD:EE:FF",
+     "requestId": "550e8400-e29b-41d4-a716-446655440000"
+   }
+   ```
+5. The Gateway checks its local physical network to confirm the sensor exists, and replies:
+   ```json
+   {
+     "type": "SENSOR_VERIFIED",
+     "requestId": "550e8400-e29b-41d4-a716-446655440000",
+     "macAddress": "AA:BB:CC:DD:EE:FF",
+     "active": true
+   }
+   ```
+6. The Backend updates the database status to `ACTIVE` and alerts the frontend via Socket.IO.
 
 ---
 
@@ -24,153 +81,54 @@ Sensor Nodes → Gateway → Backend → Database → Frontend
 
 * **Backend:** Node.js + Express
 * **Database:** MongoDB (Atlas)
-* **Real-time:** Socket.IO
-* **Messaging (future):** MQTT
-* **Frontend:** React (Antigravity)
+* **Real-time Frontend:** Socket.IO (Port 5000)
+* **Real-time Gateway:** Native `ws` WebSocket (Port 5001)
+* **Frontend:** React (Vite + Zustand)
 
 ---
 
 # 📦 Project Structure
 
 ```text
-src/
-├── config/        # Database configuration
-├── controllers/   # API request handlers
-├── models/        # MongoDB schemas
-├── services/      # Core business logic
-├── routes/        # API routes
-├── mqtt/          # MQTT integration (optional)
-├── socket/        # Real-time communication
-└── server.js      # Application entry point
+Backend/src/
+├── config/             # Database configuration
+├── controllers/        # REST API request handlers
+├── models/             # MongoDB schemas (Device, Gateway, Alert)
+├── services/           
+│   ├── gatewayManager.js     # Manages active WS connections & timeouts
+│   ├── gatewayWebSocket.js   # Raw WS server on port 5001
+│   ├── socketService.js      # Socket.IO server on port 5000
+│   └── deviceService.js      # Database operations for devices
+├── routes/             # Express API routes
+└── server.js           # Application entry point
 ```
 
 ---
 
 # 🧩 Data Model
 
-Each **device document represents one sensor node** (one room).
-
+### Device (Sensor Node)
 ```json
 {
-  "deviceId": "node_1",
-  "gatewayId": "192.168.1.10",
-  "roomId": "room_1",
-
-  "status": "active",
-  "lastSeen": "2026-04-22T10:00:00Z",
-
-  "sensors": {
-    "radar": {
-      "targets": [
-        {
-          "x": 1.2,
-          "y": 2.3,
-          "velocity": 0.5,
-          "distance": 2.8
-        }
-      ]
-    },
-    "presence": {
-      "motionDetected": true,
-      "breathingDetected": true
-    }
-  },
-
-  "processed": {
-    "filteredTargets": [],
-    "movementPath": [],
-    "fallDetected": false
-  }
+  "deviceId": "AA:BB:CC:DD:EE:FF",
+  "macAddress": "AA:BB:CC:DD:EE:FF",
+  "gatewayId": "GW-MAC-ADDRESS",
+  "status": "ACTIVE",  // REGISTERED, VERIFYING, ACTIVE, NO_HUB, DISCONNECTED
+  "lastSeen": "2026-06-06T10:00:00Z",
+  "sensors": { ... }
 }
 ```
 
----
-
-# 🔄 Data Flow
-
-1. Sensor node captures data (radar + presence)
-2. Gateway forwards data (MQTT or API simulation)
-3. Backend receives data
-4. `deviceService` updates or creates device
-5. Data stored in MongoDB (latest state)
-6. Processing & alert logic executed
-7. Socket.IO emits updates to frontend
-
----
-
-# 🔥 Core Features
-
-* ✅ Real-time device monitoring
-* ✅ Multi-room support via node-based design
-* ✅ Radar-based X/Y position tracking
-* ✅ Presence detection (motion & breathing)
-* ✅ Event-driven backend architecture
-* ✅ Scalable and modular design
-
----
-
-# 🧪 Testing Without Hardware
-
-EldReach supports **full simulation without physical sensors**.
-
-### ▶ Run simulator
-
-```bash
-node simulator.js
+### Gateway
+```json
+{
+  "gatewayId": "GW-MAC-ADDRESS",
+  "systemId": "HOME001",
+  "status": "ONLINE", // ONLINE, OFFLINE
+  "connectedAt": "2026-06-06T09:00:00Z",
+  "lastSeen": "2026-06-06T10:00:30Z"
+}
 ```
-
-This generates dynamic sensor data and mimics real device behavior.
-
----
-
-# 🛰️ MQTT Integration (Optional)
-
-### Topic Structure
-
-```text
-eldreach/{gatewayId}/{nodeId}/data
-```
-
-### Example
-
-```text
-eldreach/192.168.1.10/node_1/data
-```
-
-Backend subscribes using:
-
-```text
-eldreach/+/+/data
-```
-
----
-
-# 📊 Database Collections
-
-* **devices** → Current state of each node
-* **devicelogs** → Historical sensor data
-* **alerts** → Detected events (inactivity, fall)
-* **rooms** → Spatial mapping and layout
-
----
-
-# 🧠 Design Principles
-
-* Event-driven architecture
-* Separation of concerns (MVC + Services)
-* One device = one document (no duplication)
-* Snapshot-based state storage
-* UTC time storage with frontend conversion
-* Scalable gateway–node design
-
----
-
-# ⚠️ Important Notes
-
-* MongoDB stores timestamps in **UTC**
-* Convert to local time (IST / Sri Lanka) in frontend
-* Do not store historical data in `devices` collection
-* Always update device state instead of inserting duplicates
 
 ---
 
@@ -179,20 +137,21 @@ eldreach/+/+/data
 ### 1. Install dependencies
 
 ```bash
+cd Backend
 npm install
 ```
 
----
-
 ### 2. Configure environment
 
+Create a `.env` file in the `Backend` directory:
 ```env
 MONGO_URI=your_mongodb_connection
 PORT=5000
-ENABLE_MQTT=false
+GATEWAY_WS_PORT=5001
+GATEWAY_AUTH_TOKEN=eldreach-gw-secret-2026
+GATEWAY_HEARTBEAT_TIMEOUT=60000
+GATEWAY_COMMAND_TIMEOUT=15000
 ```
-
----
 
 ### 3. Start backend
 
@@ -200,34 +159,26 @@ ENABLE_MQTT=false
 npm run dev
 ```
 
----
+### 4. Simulating the Gateway
 
-### 4. Run simulator
+You can test the flow without physical hardware using `wscat`:
 
 ```bash
-node simulator.js
+# 1. Connect
+wscat -c "ws://localhost:5001?token=eldreach-gw-secret-2026"
+
+# 2. Register
+{"type":"REGISTER_GATEWAY","gatewayId":"GW001","systemId":"HOME001"}
+
+# 3. Simulate Sensor Verification Response (after adding via frontend)
+{"type":"SENSOR_VERIFIED","requestId":"<paste-uuid-from-server>","macAddress":"AA:BB:CC:DD:EE:FF","active":true}
 ```
 
 ---
 
-# 🔮 Future Enhancements
+# 🧠 Design Principles
 
-* Advanced fall detection algorithms
-* Spatial filtering & room boundary mapping
-* Movement path visualization
-* Multi-user dashboards
-* Gateway-level preprocessing
-
----
-
-# 👨‍💻 Project Context
-
-EldReach is built as a **real-world IoT system**, designed to integrate with actual hardware (ESP32-based nodes and gateway), with a focus on scalability, real-time processing, and reliability.
-
----
-
-# 🏁 Summary
-
-EldReach is not a simple CRUD backend — it is a **real-time, event-driven IoT processing system** designed to handle continuous sensor data, transform it into meaningful insights, and deliver live updates to users.
-
----
+* **Dual Real-time Layers:** Separated `Socket.IO` (UI updates) and native `ws` (hardware efficiency).
+* **Single Source of Truth:** Gateway connection states live in RAM (`GatewayManager`) backed up to MongoDB for consistency.
+* **Strict State Machines:** Devices must be verified through the gateway before becoming ACTIVE.
+* **Event-driven:** No polling; all status changes propagate instantly to the frontend.
