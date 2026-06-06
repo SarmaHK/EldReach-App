@@ -5,117 +5,54 @@ const socketService = require('./socketService');
 const logService = require('./logService');
 const { processSensorData } = require('./processingService');
 
+let timeoutIntervalId = null;
+
 /**
- * Handle incoming ESP32 telemetry data
+ * Starts a periodic checker to monitor sensor heartbeats.
+ * If a sensor hasn't been seen within the threshold, marks it OFFLINE.
  */
-const handleIncomingData = async (data) => {
-  const { deviceId, gatewayId, sensors } = data;
-  const now = new Date();
-
-  // Normalize deviceId
-  const normalizedDeviceId = deviceId ? deviceId.toUpperCase() : null;
-
-  if (!normalizedDeviceId) {
-    throw new Error('deviceId is required');
+const startSensorTimeoutChecker = (intervalMs = 15000, timeoutMs = 45000) => {
+  if (timeoutIntervalId) {
+    clearInterval(timeoutIntervalId);
   }
 
-  // Fetch the current device state
-  console.log(`[DeviceService] Matching device with ID: ${normalizedDeviceId}`);
-  let device = await Device.findOne({ deviceId: normalizedDeviceId });
-
-  if (!device) {
-    console.log(`[DeviceService] Unknown device: ${normalizedDeviceId}`);
-    return null;
-  }
-  
-  console.log(`[DeviceService] Device matched successfully: ${device._id}`);
-
-  // Build the update fields
-  const updateFields = {
-    lastSeen: now,
-    lastActive: now,
-  };
-
-  if (gatewayId) {
-    updateFields.gatewayId = gatewayId;
-    
-    // Update Gateway heartbeat
-    const gatewayDoc = await Gateway.findOneAndUpdate(
-      { gatewayId },
-      { $set: { lastSeen: now, status: 'online' } },
-      { new: true, upsert: true }
-    );
-    
-    const io = socketService.getIO();
-    if (io && gatewayDoc) {
-      io.emit('gateway:status', {
-        gatewayId: gatewayDoc.gatewayId,
-        ip: gatewayDoc.ip,
-        status: gatewayDoc.status,
-        lastSeen: gatewayDoc.lastSeen,
+  timeoutIntervalId = setInterval(async () => {
+    try {
+      const thresholdDate = new Date(Date.now() - timeoutMs);
+      
+      // Find devices that are ONLINE/ACTIVE but haven't been seen recently
+      const timedOutDevices = await Device.find({
+        status: { $in: ['ACTIVE', 'ONLINE'] },
+        lastSeen: { $lt: thresholdDate }
       });
-    }
-  }
 
-  if (sensors) {
-    // Overwrite the sensors with the latest snapshot. We do not append targets.
-    updateFields.sensors = sensors;
-  }
-
-  // Process sensor data (intelligence layer)
-  if (sensors) {
-    let roomBoundary = [];
-    if (device.roomId) {
-      const room = await require('../models/Room').findOne({ roomId: device.roomId });
-      if (room && room.boundary && room.boundary.length >= 3) {
-        roomBoundary = room.boundary;
+      if (timedOutDevices.length > 0) {
+        for (const device of timedOutDevices) {
+          device.status = 'OFFLINE';
+          await device.save();
+          
+          console.log(`[DeviceService] Sensor ${device.deviceId} timed out. Marked OFFLINE.`);
+          
+          // Broadcast update
+          const io = socketService.getIO();
+          if (io) {
+            io.emit('device:update', {
+              deviceId: device.deviceId,
+              macAddress: device.macAddress,
+              status: device.status,
+              gatewayId: device.gatewayId,
+              customName: device.customName,
+              lastSeen: device.lastSeen,
+            });
+          }
+        }
       }
+    } catch (err) {
+      console.error('[DeviceService] Timeout checker error:', err.message);
     }
+  }, intervalMs);
 
-    const processed = processSensorData(device, sensors, roomBoundary);
-    updateFields.processed = processed;
-
-    if (processed.fallDetected) {
-      await createAlert({
-        deviceId: normalizedDeviceId,
-        type: 'fall',
-        message: 'Possible fall detected',
-      });
-    }
-  }
-
-  // Update the device
-  device = await Device.findOneAndUpdate(
-    { deviceId: normalizedDeviceId },
-    { $set: updateFields },
-    {
-      new: true,
-      runValidators: true,
-    }
-  );
-
-  // Emit real-time update
-  console.log(`[DeviceService] Device updated successfully in DB: ${normalizedDeviceId}`);
-  const io = socketService.getIO();
-  if (io) {
-    io.emit('device:update', device);
-    console.log(`[Socket] Emitted device:update for ${device.deviceId}`);
-  }
-
-  // Check if mapping is in progress and collect points
-  const activeRoom = await require('../models/Room').findOne({ mappingInProgress: true });
-  if (activeRoom && sensors && sensors.radar && sensors.radar.targets) {
-    await require('./mappingService').collectPoint(activeRoom.roomId, sensors.radar.targets);
-  }
-
-  // Fire-and-forget logging to history collection
-  logService.logDeviceData({
-    deviceId: device.deviceId,
-    sensors: device.sensors,
-    processed: device.processed,
-  }).catch(console.error);
-
-  return device;
+  console.log(`[DeviceService] Sensor timeout checker started (interval: ${intervalMs}ms, timeout: ${timeoutMs}ms)`);
 };
 
 /**
@@ -234,7 +171,7 @@ const deleteDevice = async (deviceId) => {
 };
 
 module.exports = {
-  handleIncomingData,
+  startSensorTimeoutChecker,
   getAllDevices,
   registerDevice,
   renameDevice,

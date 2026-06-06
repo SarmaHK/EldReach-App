@@ -47,6 +47,16 @@ const TIMEOUT_CHECK_INTERVAL = 15000; // How often to scan for stale gateways
 const registerGateway = async (gatewayId, systemId, ws) => {
   const now = new Date();
 
+  // Prevent duplicate active sessions (Connection Hijacking)
+  if (activeGateways.has(gatewayId)) {
+    console.warn(`[GatewayManager] Duplicate session detected for ${gatewayId}. Disconnecting old session.`);
+    const oldEntry = activeGateways.get(gatewayId);
+    try {
+      oldEntry.ws.close(1008, 'Duplicate session detected. Replaced by new connection.');
+    } catch (e) {}
+    activeGateways.delete(gatewayId);
+  }
+
   // Store in-memory
   activeGateways.set(gatewayId, {
     ws,

@@ -1,37 +1,6 @@
 const deviceService = require('../services/deviceService');
 
-/**
- * @desc    Handle incoming ESP32 telemetry data
- * @route   POST /api/devices
- */
-const handleIncomingTelemetry = async (req, res) => {
-  try {
-    const { deviceId, gatewayId, status, timestamp, sensors } = req.body;
 
-    if (!deviceId) {
-      return res.status(400).json({
-        success: false,
-        message: 'deviceId is required',
-      });
-    }
-
-    console.log("Incoming:", req.body);
-    console.log(`[DeviceController] Incoming telemetry from gateway ${gatewayId} for device ${deviceId}`);
-    console.log(`[DeviceController] Payload:`, JSON.stringify(req.body));
-
-    await deviceService.handleIncomingData(req.body);
-
-    res.status(200).json({
-      success: true,
-    });
-  } catch (error) {
-    console.error('[DeviceController] handleIncomingTelemetry error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to process telemetry',
-    });
-  }
-};
 
 /**
  * @desc    Get all devices
@@ -144,7 +113,6 @@ const deleteDevice = async (req, res) => {
 };
 
 module.exports = {
-  handleIncomingTelemetry,
   getDevices,
   registerDevice,
   renameDevice,

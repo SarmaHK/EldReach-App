@@ -1,6 +1,8 @@
 const { WebSocketServer } = require('ws');
+const crypto = require('crypto');
 const url = require('url');
 const gatewayManager = require('./gatewayManager');
+const securityLogger = require('./logger');
 
 /**
  * Gateway WebSocket Server
@@ -55,14 +57,17 @@ const initGatewayWebSocket = () => {
         const token = params.get('token');
 
         if (!token || token !== AUTH_TOKEN) {
-          console.warn('[GatewayWS] Connection rejected: invalid or missing token');
+          securityLogger.warn('WebSocket connection rejected', {
+            ip: info.req.socket.remoteAddress,
+            reason: 'Invalid or missing token',
+          });
           callback(false, 401, 'Unauthorized');
           return;
         }
 
         callback(true);
       } catch (err) {
-        console.error('[GatewayWS] Auth error:', err.message);
+        securityLogger.error('WebSocket auth error', { error: err.message });
         callback(false, 500, 'Internal Server Error');
       }
     },
@@ -114,6 +119,44 @@ const initGatewayWebSocket = () => {
           error: 'MISSING_TYPE',
           message: 'Message must include a "type" field',
         });
+        return;
+      }
+
+      // ── HMAC Signature Validation ──
+      const { signature, timestamp } = message;
+      if (!signature || !timestamp) {
+        securityLogger.warn('WebSocket message rejected: Missing signature or timestamp', { gatewayId: registeredGatewayId });
+        sendMessage(ws, { type: MSG_TYPES.ERROR, error: 'MISSING_SECURITY_HEADERS', message: 'Signature and timestamp required' });
+        return;
+      }
+
+      // Replay Attack Prevention (5 minute window)
+      const timeDiff = Math.abs(Date.now() - new Date(timestamp).getTime());
+      if (timeDiff > 5 * 60 * 1000) {
+        securityLogger.warn('WebSocket message rejected: Timestamp expired (Replay Attack)', { gatewayId: registeredGatewayId });
+        sendMessage(ws, { type: MSG_TYPES.ERROR, error: 'EXPIRED_TIMESTAMP', message: 'Message timestamp is too old' });
+        return;
+      }
+
+      // Verify HMAC
+      const hmacSecret = process.env.HMAC_SECRET || 'eldreach_hmac_secret_key_98765';
+      const payloadToSign = { ...message };
+      delete payloadToSign.signature; // Remove signature before hashing
+
+      // Sort keys for deterministic JSON representation
+      const sortedPayload = Object.keys(payloadToSign).sort().reduce((obj, key) => {
+        obj[key] = payloadToSign[key];
+        return obj;
+      }, {});
+
+      const computedSignature = crypto
+        .createHmac('sha256', hmacSecret)
+        .update(JSON.stringify(sortedPayload))
+        .digest('hex');
+
+      if (computedSignature !== signature) {
+        securityLogger.warn('WebSocket message rejected: Invalid HMAC Signature', { gatewayId: registeredGatewayId });
+        sendMessage(ws, { type: MSG_TYPES.ERROR, error: 'INVALID_SIGNATURE', message: 'Message signature validation failed' });
         return;
       }
 

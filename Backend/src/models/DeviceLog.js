@@ -1,55 +1,20 @@
 const mongoose = require('mongoose');
 
-// Sub-schema for individual radar targets
-const radarTargetSchema = new mongoose.Schema(
-  {
-    x: { type: Number },
-    y: { type: Number },
-    velocity: { type: Number },
-    distance: { type: Number },
-  },
-  { _id: false }
-);
-
-// Sub-schema for radar sensor data
-const radarSchema = new mongoose.Schema(
-  {
-    targets: [radarTargetSchema],
-  },
-  { _id: false }
-);
-
-// Sub-schema for presence sensor data
-const presenceSchema = new mongoose.Schema(
-  {
-    motionDetected: { type: Boolean },
-    breathingDetected: { type: Boolean },
-  },
-  { _id: false }
-);
-
-// Sub-schema for raw sensor data
-const sensorsSchema = new mongoose.Schema(
-  {
-    radar: { type: radarSchema, default: () => ({}) },
-    presence: { type: presenceSchema, default: () => ({}) },
-  },
-  { _id: false }
-);
-
 const deviceLogSchema = new mongoose.Schema({
-  deviceId: {
+  macAddress: {
     type: String,
-    required: [true, 'deviceId is required'],
+    required: [true, 'macAddress is required'],
     trim: true,
+    uppercase: true,
   },
-  sensors: {
-    type: sensorsSchema,
-    default: () => ({}),
+  presence: {
+    type: Boolean,
+    required: true,
+    default: false,
   },
-  processed: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {},
+  breathingRate: {
+    type: Number,
+    default: 0,
   },
   timestamp: {
     type: Date,
@@ -58,6 +23,6 @@ const deviceLogSchema = new mongoose.Schema({
 });
 
 // Index for efficient time-series queries
-deviceLogSchema.index({ deviceId: 1, timestamp: -1 });
+deviceLogSchema.index({ macAddress: 1, timestamp: -1 });
 
 module.exports = mongoose.model('DeviceLog', deviceLogSchema);

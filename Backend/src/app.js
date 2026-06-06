@@ -1,13 +1,19 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const { apiLimiter } = require('./middleware/rateLimiter');
 
 // Initialize express application
 const app = express();
 
-// Middleware
+// Security & Standard Middleware
+app.use(helmet()); // Secure HTTP headers
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Global API rate limiting
+app.use('/api', apiLimiter);
 
 // Basic route to check if server is running
 app.get('/api/health', (req, res) => {
