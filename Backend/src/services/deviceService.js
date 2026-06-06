@@ -1,6 +1,5 @@
 const Device = require('../models/Device');
 const Gateway = require('../models/Gateway');
-const axios = require('axios');
 const { createAlert } = require('./alertService');
 const socketService = require('./socketService');
 const logService = require('./logService');
@@ -130,24 +129,15 @@ const registerDevice = async ({ deviceId, gatewayId, roomId, customName }) => {
   const now = new Date();
   const normalizedId = deviceId.toUpperCase();
   
-  // ── Step 1: Link with Physical Gateway ──
+  // ── Step 1: Validate Gateway Exists ──
   const gateway = await Gateway.findOne({ gatewayId });
   if (!gateway) {
     throw new Error('HOME_HUB_NOT_FOUND');
   }
 
-  const rawMac = normalizedId.replace(/:/g, "").toUpperCase();
-  console.log(`[Device Registration] Sending MAC ${rawMac} to gateway at ${gateway.ip}`);
-
-  try {
-    const response = await axios.get(`http://${gateway.ip}/link-sensor?mac=${rawMac}`, { timeout: 5000 });
-    console.log(`[Device Registration] Gateway response:`, response.data);
-  } catch (err) {
-    console.error(`[Device Registration] Gateway connection failed:`, err.message);
-    throw new Error('GATEWAY_LINK_FAILED');
-  }
-
   // ── Step 2: Save to Database ──
+  // Sensor verification/linking is now handled separately via
+  // POST /api/devices/verify (WebSocket-based)
   let device = await Device.findOne({ deviceId: normalizedId });
   let isNew = false;
   
@@ -155,15 +145,18 @@ const registerDevice = async ({ deviceId, gatewayId, roomId, customName }) => {
     device.gatewayId = gatewayId;
     if (roomId) device.roomId = roomId;
     if (customName !== undefined) device.customName = customName;
+    device.macAddress = normalizedId;
     device.lastSeen = null;
     await device.save();
   } else {
     isNew = true;
     device = new Device({
       deviceId: normalizedId,
+      macAddress: normalizedId,
       gatewayId,
       roomId: roomId || null,
       customName: customName || null,
+      status: 'REGISTERED',
       lastSeen: null,
       lastActive: null,
       sensors: {}
@@ -176,9 +169,11 @@ const registerDevice = async ({ deviceId, gatewayId, roomId, customName }) => {
   if (io) {
     io.emit('device:update', {
       deviceId: device.deviceId,
+      macAddress: device.macAddress,
       gatewayId: device.gatewayId,
       roomId: device.roomId,
       customName: device.customName,
+      status: device.status,
       lastSeen: device.lastSeen,
     });
     console.log(`[Socket] Emitted device:update for registered device ${device.deviceId}`);

@@ -41,9 +41,11 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
     }
 
     setSubmitting(true);
+    setError('');
 
     try {
-      const res = await fetch('http://localhost:5000/api/devices/register', {
+      // Step 1: Register the device
+      const regRes = await fetch('http://localhost:5000/api/devices/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -54,10 +56,37 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
         }),
       });
 
-      const data = await res.json();
+      const regData = await regRes.json();
 
-      if (data.status === 'success' || res.status === 201) {
-        setSuccess(true);
+      if (regData.status !== 'success' && regRes.status !== 201) {
+        setError(regData.message || 'Failed to register device.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Step 2: Trigger sensor verification
+      const verifyRes = await fetch('http://localhost:5000/api/devices/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          macAddress: macAddress.trim(),
+          gatewayId: connectedGateway.gatewayId,
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+
+      if (verifyData.status === 'success') {
+        if (verifyData.verified) {
+          setSuccess(true);
+        } else {
+          setError('Device registered, but verification failed (Not Active).');
+        }
+      } else {
+        setError(verifyData.message || 'Device registered, but verification error occurred.');
+      }
+
+      if (verifyData.status === 'success' && verifyData.verified) {
         setTimeout(() => {
           setSuccess(false);
           setMacAddress('');
@@ -65,8 +94,6 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
           setRoomId('');
           onClose();
         }, 1500);
-      } else {
-        setError(data.message || 'Something went wrong. Please try again.');
       }
     } catch (err) {
       setError('Something went wrong. Please try again.');

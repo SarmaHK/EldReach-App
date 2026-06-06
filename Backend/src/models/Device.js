@@ -54,6 +54,12 @@ const deviceSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    macAddress: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null,
+    },
     gatewayId: {
       type: String,
       trim: true,
@@ -66,7 +72,8 @@ const deviceSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: 'waiting',
+      enum: ['REGISTERED', 'VERIFYING', 'ACTIVE', 'OFFLINE', 'waiting'],
+      default: 'REGISTERED',
     },
     sensors: {
       type: sensorsSchema,

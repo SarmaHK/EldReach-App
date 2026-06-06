@@ -98,28 +98,41 @@ export async function connectToGateway(gatewayId) {
 }
 
 /**
- * Trigger a gateway scan via mDNS on the backend.
- * @returns {Promise<{ success: boolean, gateway?: object, error?: string, message?: string }>}
+ * Get gateway WebSocket connection info from the backend.
+ * @returns {Promise<{ status: string, wsUrl?: string, message?: string }>}
  */
-export async function scanForGateway() {
+export async function connectGateway() {
   try {
-    const res = await axios.post(`${API_BASE}/gateway/scan`);
+    const res = await axios.post(`${API_BASE}/gateways/connect`);
     return res.data;
   } catch (error) {
-    // Backend returns structured error responses — forward them
     if (error.response?.data) {
       return {
-        success: false,
-        error: error.response.data.error || 'SCAN_FAILED',
-        message: error.response.data.message || 'Gateway scan failed.',
+        status: 'error',
+        error: error.response.data.error || 'CONNECT_FAILED',
+        message: error.response.data.message || 'Gateway connection failed.',
       };
     }
     return {
-      success: false,
+      status: 'error',
       error: 'NETWORK_ERROR',
       message: 'Unable to reach backend. Is the server running?',
     };
   }
+}
+
+/**
+ * Trigger a gateway scan via mDNS on the backend.
+ * @deprecated Use connectGateway() instead. Gateway now connects via WebSocket.
+ * @returns {Promise<{ success: boolean, gateway?: object, error?: string, message?: string }>}
+ */
+export async function scanForGateway() {
+  // Redirect to the new connect endpoint for backwards compatibility
+  const result = await connectGateway();
+  return {
+    success: result.status === 'success',
+    ...result,
+  };
 }
 
 /**
@@ -138,15 +151,65 @@ export function subscribeToGatewayUpdates(callback) {
 
 /**
  * Fetch current gateway status from backend.
+ * @param {string} [gatewayId] - Optional specific gateway ID
  * @returns {Promise<{ gateway: object | null }>}
  */
-export async function getGatewayStatus() {
+export async function getGatewayStatus(gatewayId) {
   try {
-    const res = await axios.get(`${API_BASE}/gateway/status`);
+    const params = gatewayId ? `?gatewayId=${encodeURIComponent(gatewayId)}` : '';
+    const res = await axios.get(`${API_BASE}/gateways/status${params}`);
     return res.data.gateway || null;
   } catch (error) {
     console.error('[DeviceService] Failed to fetch gateway status:', error);
     return null;
+  }
+}
+
+/**
+ * Get all registered gateways.
+ * @returns {Promise<{ data: object[], count: number, connectedCount: number } | null>}
+ */
+export async function getAllGateways() {
+  try {
+    const res = await axios.get(`${API_BASE}/gateways`);
+    return res.data;
+  } catch (error) {
+    console.error('[DeviceService] Failed to fetch gateways:', error);
+    return null;
+  }
+}
+
+/**
+ * Verify a sensor MAC address via the gateway WebSocket.
+ * The backend sends a VERIFY_SENSOR command to the gateway
+ * and returns the result.
+ *
+ * @param {string} macAddress - Sensor MAC address (e.g., "AA:BB:CC:DD:EE:FF")
+ * @param {string} gatewayId - ID of the gateway to verify against
+ * @returns {Promise<{ status: string, verified?: boolean, device?: object, error?: string, message?: string }>}
+ */
+export async function verifySensor(macAddress, gatewayId) {
+  try {
+    const res = await axios.post(`${API_BASE}/devices/verify`, {
+      macAddress,
+      gatewayId,
+    });
+    return res.data;
+  } catch (error) {
+    if (error.response?.data) {
+      return {
+        status: 'error',
+        verified: false,
+        error: error.response.data.error || 'VERIFICATION_FAILED',
+        message: error.response.data.message || 'Sensor verification failed.',
+      };
+    }
+    return {
+      status: 'error',
+      verified: false,
+      error: 'NETWORK_ERROR',
+      message: 'Unable to reach backend. Is the server running?',
+    };
   }
 }
 

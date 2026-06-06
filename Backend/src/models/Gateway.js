@@ -2,11 +2,11 @@ const mongoose = require('mongoose');
 
 /**
  * Gateway model — represents a physical EldReach gateway hub
- * discovered via mDNS on the local network.
+ * that connects to the backend via WebSocket.
  *
- * The gatewayId is the MAC address returned by the gateway's
- * /get-system-id endpoint, ensuring a stable unique identifier
- * even when the IP changes between reboots.
+ * The gatewayId is the unique identifier for the gateway
+ * (typically the MAC address). systemId identifies the
+ * household/installation the gateway belongs to.
  *
  * Gateway is NOT a device — it acts as a bridge between
  * sensor nodes and this backend. Devices (nodes) flow through
@@ -16,23 +16,27 @@ const gatewaySchema = new mongoose.Schema(
   {
     gatewayId: {
       type: String,
-      required: [true, 'gatewayId (MAC address) is required'],
+      required: [true, 'gatewayId is required'],
       unique: true,
       trim: true,
     },
-    ip: {
+    systemId: {
       type: String,
-      required: [true, 'Gateway IP address is required'],
       trim: true,
+      default: null,
     },
     status: {
       type: String,
-      enum: ['online', 'offline'],
-      default: 'online',
+      enum: ['ONLINE', 'OFFLINE'],
+      default: 'OFFLINE',
     },
     lastSeen: {
       type: Date,
       default: Date.now,
+    },
+    connectedAt: {
+      type: Date,
+      default: null,
     },
   },
   {

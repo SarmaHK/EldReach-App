@@ -205,47 +205,44 @@ const useStore = create((set, get) => ({
 
   // ── Gateway scan ──────────────────────────────────────────────
   /**
-   * scanGateway — trigger mDNS scan via backend API.
-   * Updates gatewayScanning, connectedGateway, gatewayScanError, gatewayScanMessage.
+   * scanGateway — Check if the Central Hub is connected via WebSocket.
+   * Updates connectedGateway, gatewayScanning, gatewayScanError, gatewayScanMessage.
    */
   scanGateway: async () => {
-    const { scanForGateway } = await import('../services/deviceService');
+    const { getGatewayStatus } = await import('../services/deviceService');
     set({
       gatewayScanning: true,
       gatewayScanError: null,
-      gatewayScanMessage: 'Scanning network…',
+      gatewayScanMessage: 'Checking connection with Central Hub...',
     });
 
     try {
-      const result = await scanForGateway();
+      const gateway = await getGatewayStatus();
 
-      if (result.success) {
+      if (gateway && gateway.wsConnected) {
         set({
-          connectedGateway: result.gateway,
+          connectedGateway: gateway,
           gatewayScanning: false,
           gatewayScanError: null,
-          gatewayScanMessage: 'Gateway connected successfully!',
+          gatewayScanMessage: 'Central Hub connected successfully!',
         });
         // Auto-refresh device pool after gateway connects
         get().refreshDevicePool();
       } else {
         set({
+          connectedGateway: null,
           gatewayScanning: false,
-          gatewayScanError: result.error,
-          gatewayScanMessage:
-            result.error === 'GATEWAY_NOT_FOUND'
-              ? 'No gateway found on the network.'
-              : result.error === 'ID_HANDSHAKE_FAILED'
-              ? 'Gateway found but handshake failed.'
-              : result.message || 'Scan failed.',
+          gatewayScanError: 'GATEWAY_NOT_CONNECTED',
+          gatewayScanMessage: 'Central Hub is not connected. Please ensure it is powered on and configured.',
         });
       }
     } catch (err) {
       console.error('[Store] scanGateway failed:', err);
       set({
+        connectedGateway: null,
         gatewayScanning: false,
         gatewayScanError: 'SCAN_FAILED',
-        gatewayScanMessage: 'Unexpected error during scan.',
+        gatewayScanMessage: 'Unexpected error checking hub status.',
       });
     }
   },
