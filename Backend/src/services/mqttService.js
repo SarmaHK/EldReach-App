@@ -1,4 +1,5 @@
-const aedes = require('aedes')();
+const { Aedes } = require('aedes');
+const aedes = new Aedes();
 const net = require('net');
 const aedesServerFactory = require('aedes-server-factory');
 const Device = require('../models/Device');
