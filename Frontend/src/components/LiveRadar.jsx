@@ -33,14 +33,14 @@ export default function LiveRadar() {
       ctx.clearRect(0, 0, width, height);
 
       // Constants to match python script's "Room View"
-      const ROOM_WIDTH_MM = 5000;
-      const ROOM_DEPTH_MM = 4000;
+      const ROOM_WIDTH_MM = 10000; // -5000 to 5000
+      const ROOM_DEPTH_MM = 6000;  // 0 to 6000
 
-      const mapX = (val) => (val / ROOM_WIDTH_MM) * width;
+      const mapX = (val) => ((val + 5000) / ROOM_WIDTH_MM) * width;
       const mapY = (val) => height - (val / ROOM_DEPTH_MM) * height;
 
       // 1. Draw FOV Cone
-      const angleRad = 45 * Math.PI / 180;
+      const angleRad = 90 * Math.PI / 180; // Pointing up
       const fovRad = 60 * Math.PI / 180;
       const rangeMm = 6000;
       const fovStartAngle = angleRad - fovRad; 
@@ -50,8 +50,8 @@ export default function LiveRadar() {
       ctx.beginPath();
       ctx.moveTo(mapX(0), mapY(0));
       for(let a = fovStartAngle; a <= fovEndAngle; a += 0.05) {
-        let x = Math.min(ROOM_WIDTH_MM, Math.max(0, rangeMm * Math.cos(a)));
-        let y = Math.min(ROOM_DEPTH_MM, Math.max(0, rangeMm * Math.sin(a)));
+        let x = rangeMm * Math.cos(a);
+        let y = rangeMm * Math.sin(a);
         ctx.lineTo(mapX(x), mapY(y));
       }
       ctx.lineTo(mapX(0), mapY(0));
@@ -62,14 +62,14 @@ export default function LiveRadar() {
       ctx.lineWidth = 1;
       
       ctx.beginPath();
-      [1000, 2000, 3000, 4000].forEach(x => {
+      for (let x = -5000; x <= 5000; x += 1000) {
         ctx.moveTo(mapX(x), 0);
         ctx.lineTo(mapX(x), height);
-      });
-      [1000, 2000, 3000, 4000].forEach(y => {
+      }
+      for (let y = 1000; y <= 6000; y += 1000) {
         ctx.moveTo(0, mapY(y));
         ctx.lineTo(width, mapY(y));
-      });
+      }
       ctx.stroke();
 
       // 3. Draw Gate Arcs (Distance Rings)
@@ -83,14 +83,14 @@ export default function LiveRadar() {
         ctx.ellipse(mapX(0), mapY(0), rx, ry, 0, 0, 2 * Math.PI);
         ctx.stroke();
         
-        // Gate Label at 45 deg
-        if (dist < Math.sqrt(ROOM_WIDTH_MM * ROOM_WIDTH_MM + ROOM_DEPTH_MM * ROOM_DEPTH_MM)) {
+        // Gate Label at 60 deg (right side of cone)
+        if (dist <= 6000) {
           ctx.fillStyle = '#484f58';
           ctx.font = '10px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          const textX = mapX(0) + rx * Math.cos(45 * Math.PI / 180);
-          const textY = mapY(0) - ry * Math.sin(45 * Math.PI / 180);
+          const textX = mapX(0) + rx * Math.cos(60 * Math.PI / 180);
+          const textY = mapY(0) - ry * Math.sin(60 * Math.PI / 180);
           ctx.fillText(`G${g}`, textX, textY);
         }
       });
@@ -100,19 +100,19 @@ export default function LiveRadar() {
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      [1000, 2000, 3000, 4000].forEach(x => {
-        ctx.fillText(x.toString(), mapX(x), height - 4);
-      });
+      for (let x = -5000; x <= 5000; x += 1000) {
+        if (x !== 0) ctx.fillText(x.toString(), mapX(x), height - 4);
+      }
       
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      [1000, 2000, 3000, 4000].forEach(y => {
-        ctx.fillText(y.toString(), 12, mapY(y));
-      });
+      for (let y = 1000; y <= 6000; y += 1000) {
+        ctx.fillText(y.toString(), mapX(0) + 4, mapY(y));
+      }
       
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('0', 8, height - 4);
+      ctx.fillText('0', mapX(0), height - 4);
 
       // 5. Draw Targets
       targets.forEach((t, idx) => {
@@ -124,7 +124,7 @@ export default function LiveRadar() {
         const xVal = typeof targetData.x === 'number' ? targetData.x : parseFloat(targetData.x) || 0;
         const yVal = typeof targetData.y === 'number' ? targetData.y : parseFloat(targetData.y) || 0;
         
-        if (xVal > ROOM_WIDTH_MM || yVal > ROOM_DEPTH_MM || xVal < 0 || yVal < 0) return;
+        if (xVal > 5000 || xVal < -5000 || yVal > 6000 || yVal < 0) return;
 
         const px = mapX(xVal);
         const py = mapY(yVal);
@@ -158,19 +158,20 @@ export default function LiveRadar() {
 
       // 6. Draw Sensor marker
       ctx.beginPath();
-      ctx.moveTo(mapX(0), mapY(0));
+      ctx.moveTo(mapX(0), mapY(0) - 8);
       ctx.lineTo(mapX(0) + 8, mapY(0));
-      ctx.lineTo(mapX(0), mapY(0) - 8);
+      ctx.lineTo(mapX(0) - 8, mapY(0));
       ctx.fillStyle = '#f0883e'; // Orange
       ctx.fill();
 
       // Sensor details overlay text
+      ctx.fillStyle = '#f0883e';
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText('Sensor', 12, height - 28);
-      ctx.fillText('1800mm', 12, height - 16);
-      ctx.fillText('45°', 12, height - 4);
+      ctx.fillText('6000mm Range', 12, height - 16);
+      ctx.fillText('120° FOV', 12, height - 4);
     };
 
     // 2. Setup rendering loop
@@ -268,7 +269,7 @@ export default function LiveRadar() {
         style={{
           position: 'relative',
           width: '100%',
-          aspectRatio: '5 / 4',
+          aspectRatio: '5 / 3',
           background: '#0d1117',
           border: '1px solid #21262d',
           overflow: 'hidden'

@@ -137,7 +137,7 @@ async def simulate_sensor():
                 await websocket.send(json.dumps(telemetry_msg))
                 
                 # Wait before sending the next telemetry reading
-                await asyncio.sleep(0.045)
+                await asyncio.sleep(5)
                 
     except Exception as e:
         print(f"WebSocket Error: {e}")
