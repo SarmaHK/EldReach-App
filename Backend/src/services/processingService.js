@@ -15,7 +15,14 @@ const { isPointInsidePolygon } = require('../utils/spatial');
  */
 const processTargets = (previousTargets = [], newTargets = []) => {
   // 1. Velocity Validation (Reject noise)
-  const validTargets = newTargets.filter(target => target.velocity <= MAX_VELOCITY);
+  // Support both 'velocity' (m/s) and 'speed' (mm/s, typical from LD2450)
+  const validTargets = newTargets.filter(target => {
+    const v = target.velocity !== undefined ? target.velocity : (target.speed !== undefined ? target.speed / 1000 : 0);
+    return v <= MAX_VELOCITY;
+  }).map(target => ({
+    ...target,
+    velocity: target.velocity !== undefined ? target.velocity : (target.speed !== undefined ? target.speed / 1000 : 0)
+  }));
 
   if (!previousTargets || previousTargets.length === 0) {
     return validTargets;
@@ -30,10 +37,13 @@ const processTargets = (previousTargets = [], newTargets = []) => {
     if (!prevTarget) return newTarget; // No previous target to smooth with
 
     return {
+      ...newTarget,
       x: ALPHA * newTarget.x + (1 - ALPHA) * prevTarget.x,
       y: ALPHA * newTarget.y + (1 - ALPHA) * prevTarget.y,
       velocity: newTarget.velocity, // Usually don't smooth instantaneous velocity
-      distance: ALPHA * newTarget.distance + (1 - ALPHA) * prevTarget.distance,
+      distance: (newTarget.distance !== undefined && prevTarget.distance !== undefined) 
+                 ? ALPHA * newTarget.distance + (1 - ALPHA) * prevTarget.distance 
+                 : newTarget.distance,
     };
   });
 };

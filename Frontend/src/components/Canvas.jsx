@@ -42,6 +42,7 @@ const Canvas = ({ theme }) => {
   const updateGatewayNode = useStore(s => s.updateGatewayNode);
   const globalGatewayId  = useStore(s => s.globalGatewayId);
   const monitoringState  = useStore(s => s.monitoringState);
+  const liveRadarTargets = useStore(s => s.liveRadarTargets); // Added subscription for real-time targets
 
   // Gateway outer ring color reflects worst room status
   const gatewayColor = useMemo(() => {
@@ -216,8 +217,8 @@ const Canvas = ({ theme }) => {
                   {deviceData?.processed?.movementPath?.length > 1 && (
                     <Line
                       points={deviceData.processed.movementPath.flatMap(p => [
-                        node.x + p.x * 100,
-                        node.y + p.y * 100
+                        node.x + p.x / 10,
+                        node.y + p.y / 10
                       ])}
                       stroke={color}
                       strokeWidth={2}
@@ -227,18 +228,59 @@ const Canvas = ({ theme }) => {
                   )}
 
                   {/* Filtered Targets */}
-                  {deviceData?.processed?.filteredTargets?.map((t, i) => (
-                    <Circle
-                      key={`target-${node.id}-${i}`}
-                      x={node.x + t.x * 100}
-                      y={node.y + t.y * 100}
-                      radius={4}
-                      fill={color}
-                      opacity={0.8}
-                      shadowBlur={5}
-                      shadowColor={color}
-                    />
-                  ))}
+                  {deviceData?.processed?.filteredTargets?.map((t, i) => {
+                    let targetData = t;
+                    if (typeof t === 'string') {
+                      try {
+                        targetData = JSON.parse(t);
+                      } catch(e) {}
+                    }
+                    
+                    const xVal = typeof targetData.x === 'number' ? targetData.x : parseFloat(targetData.x) || 0;
+                    const yVal = typeof targetData.y === 'number' ? targetData.y : parseFloat(targetData.y) || 0;
+                    
+                    return (
+                      <Circle
+                        key={`target-${node.id}-${i}`}
+                        x={node.x + (xVal / 10)}
+                        y={node.y + (yVal / 10)}
+                        radius={4}
+                        fill={color}
+                        opacity={0.8}
+                        shadowBlur={5}
+                        shadowColor={color}
+                      />
+                    );
+                  })}
+
+                  {/* Live Radar Targets (Immediate feedback pointer) */}
+                  {/* Show live pointer if this node is connected to the gateway sending telemetry */}
+                  {node.status === 'CONNECTED' && liveRadarTargets?.map((t, i) => {
+                    let targetData = t;
+                    if (typeof t === 'string') {
+                      try {
+                        targetData = JSON.parse(t);
+                      } catch(e) {}
+                    }
+                    
+                    const xVal = typeof targetData.x === 'number' ? targetData.x : parseFloat(targetData.x) || 0;
+                    const yVal = typeof targetData.y === 'number' ? targetData.y : parseFloat(targetData.y) || 0;
+                    
+                    const targetColor = targetData.alarm === 2 ? '#ef4444' : targetData.alarm === 1 ? '#f59e0b' : '#10b981';
+                    
+                    return (
+                      <Circle
+                        key={`live-target-${node.id}-${i}`}
+                        x={node.x + (xVal / 10)}
+                        y={node.y + (yVal / 10)}
+                        radius={5}
+                        fill={targetColor}
+                        opacity={0.9}
+                        shadowBlur={8}
+                        shadowColor={targetColor}
+                      />
+                    );
+                  })}
 
                   <Group
                     x={node.x} y={node.y}
@@ -293,6 +335,35 @@ const Canvas = ({ theme }) => {
                 {selectedIds.includes('gateway-node-1') && (
                   <Circle radius={30} stroke={lockedIds.includes('gateway-node-1') ? '#94a3b8' : '#4F84FF'} strokeWidth={2} dash={[4, 4]} />
                 )}
+                
+                {/* Live Radar Targets (Immediate feedback pointer for the gateway) */}
+                {liveRadarTargets?.map((t, i) => {
+                  let targetData = t;
+                  if (typeof t === 'string') {
+                    try {
+                      targetData = JSON.parse(t);
+                    } catch(e) {}
+                  }
+                  
+                  const xVal = typeof targetData.x === 'number' ? targetData.x : parseFloat(targetData.x) || 0;
+                  const yVal = typeof targetData.y === 'number' ? targetData.y : parseFloat(targetData.y) || 0;
+                  
+                  const targetColor = targetData.alarm === 2 ? '#ef4444' : targetData.alarm === 1 ? '#f59e0b' : '#10b981';
+                  
+                  return (
+                    <Circle
+                      key={`gateway-live-target-${i}`}
+                      x={(xVal / 10)}
+                      y={(yVal / 10)}
+                      radius={5}
+                      fill={targetColor}
+                      opacity={0.9}
+                      shadowBlur={8}
+                      shadowColor={targetColor}
+                    />
+                  );
+                })}
+
                 <Circle radius={24} fill="#DCFCE7" stroke={gatewayColor} strokeWidth={2.5} shadowColor="rgba(0,0,0,0.08)" shadowBlur={8} />
                 <Circle radius={6} fill={gatewayColor} />
                 <Text text={globalGatewayId || 'HOME HUB'} y={30} x={-40} width={80} align="center" fill={theme === 'dark' ? '#F8FAFC' : '#1E293B'} fontSize={11} fontFamily="system-ui" />
