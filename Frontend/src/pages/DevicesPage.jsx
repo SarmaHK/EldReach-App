@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Wifi, Activity, Radio, Clock, Plus, WifiOff, ArrowRight, RefreshCw, Loader, Search, CheckCircle, AlertTriangle, MoreVertical, Pencil, Trash2, X } from 'lucide-react';
 import useStore from '../store/useStore';
 import ConnectDeviceModal from '../components/ConnectDeviceModal';
+import ConnectGatewayModal from '../components/ConnectGatewayModal';
+import LiveRadar from '../components/LiveRadar';
 import { renameDevice, deleteDevice } from '../services/deviceService';
 
 export default function DevicesPage() {
@@ -10,6 +12,7 @@ export default function DevicesPage() {
   const devicesError = useStore(s => s.devicesError);
   const backendSynced = useStore(s => s.backendSynced);
   const [modalMode, setModalMode] = useState(null);
+  const [gatewayModalOpen, setGatewayModalOpen] = useState(false);
 
   const connectedGateway = useStore(s => s.connectedGateway);
   const gatewayScanning = useStore(s => s.gatewayScanning);
@@ -30,7 +33,7 @@ export default function DevicesPage() {
 
   const hasGateway = !!connectedGateway;
   const hasDevices = discoveredDevices.length > 0;
-  const gwOffline = connectedGateway && (connectedGateway.status === 'Offline' || connectedGateway.status === 'offline');
+  const gwOffline = connectedGateway && connectedGateway.status.toLowerCase() === 'offline';
 
   // --- Rename handlers ---
   const openRename = (device) => {
@@ -99,38 +102,48 @@ export default function DevicesPage() {
 
       {/* ── Gateway Status Banner ── */}
       {hasGateway && (
-        <div className={`gateway-banner ${gwOffline ? 'gateway-banner--offline' : ''}`} style={{
-          backgroundColor: gwOffline ? 'var(--status-warn-bg)' : 'var(--bg-surface)',
-          borderColor: gwOffline ? 'var(--status-warn)' : 'var(--border-subtle)'
-        }}>
-          <div className="gateway-banner__icon" style={{ color: gwOffline ? 'var(--status-warn)' : 'var(--status-active)' }}>
-            <Radio size={18} />
+        <div style={{ marginBottom: '2rem' }}>
+          <div className={`gateway-banner ${gwOffline ? 'gateway-banner--offline' : ''}`} style={{
+            backgroundColor: gwOffline ? 'var(--status-warn-bg)' : 'var(--bg-surface)',
+            borderColor: gwOffline ? 'var(--status-warn)' : 'var(--border-subtle)',
+            marginBottom: '1.5rem'
+          }}>
+            <div className="gateway-banner__icon" style={{ color: gwOffline ? 'var(--status-warn)' : 'var(--status-active)' }}>
+              <Radio size={18} />
+            </div>
+            <div className="gateway-banner__info">
+              <span className="gateway-banner__label">
+                {connectedGateway.customName || (gwOffline ? 'Home Hub Offline ⚠️' : 'Home Hub Connected ✅')}
+              </span>
+              <span className="gateway-banner__detail" style={{ color: gwOffline ? 'var(--status-warn)' : 'var(--text-secondary)' }}>
+                {gwOffline ? 'Devices temporarily unavailable' : `${connectedGateway.gatewayId} · ${connectedGateway.systemId || 'No System ID'}`}
+              </span>
+            </div>
+            <div className="gateway-banner__status">
+              {gwOffline ? (
+                <button onClick={handleScan} disabled={gatewayScanning} style={{
+                  fontSize: '0.78rem', fontWeight: 600, padding: '5px 14px', borderRadius: '8px',
+                  border: 'none', background: 'var(--status-warn)', color: '#fff',
+                  cursor: gatewayScanning ? 'not-allowed' : 'pointer',
+                  opacity: gatewayScanning ? 0.6 : 1,
+                }}>
+                  {gatewayScanning ? 'Scanning…' : 'Reconnect Home Hub'}
+                </button>
+              ) : (
+                <>
+                  <span className="status-dot active" style={{ backgroundColor: 'var(--status-active)' }} />
+                  <span style={{ color: 'var(--status-active)' }}>Connected</span>
+                </>
+              )}
+            </div>
           </div>
-          <div className="gateway-banner__info">
-            <span className="gateway-banner__label">
-              {gwOffline ? 'Home Hub Offline ⚠️' : 'Home Hub Connected ✅'}
-            </span>
-            <span className="gateway-banner__detail" style={{ color: gwOffline ? 'var(--status-warn)' : 'var(--text-secondary)' }}>
-              {gwOffline ? 'Devices temporarily unavailable' : `${connectedGateway.gatewayId} · ${connectedGateway.ip}`}
-            </span>
-          </div>
-          <div className="gateway-banner__status">
-            {gwOffline ? (
-              <button onClick={handleScan} disabled={gatewayScanning} style={{
-                fontSize: '0.78rem', fontWeight: 600, padding: '5px 14px', borderRadius: '8px',
-                border: 'none', background: 'var(--status-warn)', color: '#fff',
-                cursor: gatewayScanning ? 'not-allowed' : 'pointer',
-                opacity: gatewayScanning ? 0.6 : 1,
-              }}>
-                {gatewayScanning ? 'Scanning…' : 'Reconnect Home Hub'}
-              </button>
-            ) : (
-              <>
-                <span className="status-dot active" style={{ backgroundColor: 'var(--status-active)' }} />
-                <span style={{ color: 'var(--status-active)' }}>Connected</span>
-              </>
-            )}
-          </div>
+          
+          {/* Live Radar specific to the Gateway */}
+          {!gwOffline && (
+            <div style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}>
+              <LiveRadar />
+            </div>
+          )}
         </div>
       )}
 
@@ -191,6 +204,7 @@ export default function DevicesPage() {
           <p className="empty-state-card__desc">Start by finding your home hub, then add your devices.</p>
           <div className="empty-state-card__actions">
             <button className="empty-state-card__cta" onClick={handleScan} id="scan-gateway-btn"><Search size={18} /> Find Home Hub</button>
+            <button className="empty-state-card__link-btn" onClick={() => setGatewayModalOpen(true)}><Plus size={14} /> Add Hub Manually</button>
           </div>
         </div>
 
@@ -384,6 +398,11 @@ export default function DevicesPage() {
           setModalMode(null);
           useStore.getState().refreshDevicePool();
         }}
+      />
+
+      <ConnectGatewayModal
+        isOpen={gatewayModalOpen}
+        onClose={() => setGatewayModalOpen(false)}
       />
 
       {/* Close menu on outside click */}

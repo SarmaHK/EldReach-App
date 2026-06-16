@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { connectGateway, getGatewayStatus, getAllGateways } = require('../controllers/gatewayController');
+const { connectGateway, getGatewayStatus, getAllGateways, registerGatewayManual } = require('../controllers/gatewayController');
+
+// POST /api/gateways/register — manually register a gateway by MAC address
+router.post('/register', registerGatewayManual);
 
 // POST /api/gateways/connect — get WebSocket connection info
 router.post('/connect', connectGateway);

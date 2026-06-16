@@ -285,6 +285,33 @@ const useStore = create((set, get) => ({
     }
   },
 
+  // Fetch system wide settings
+  fetchSettings: async () => {
+    try {
+      const res = await api.get('/settings');
+      set({ systemSettings: res.data.data });
+    } catch (err) {
+      console.error('Failed to fetch settings', err);
+    }
+  },
+
+  // Manual Gateway Registration
+  registerGatewayManual: async (gatewayId, customName) => {
+    try {
+      const res = await api.post('/gateways/register', { gatewayId, systemId: get().systemId, customName });
+      
+      // Use the returned gateway as the connectedGateway (even if offline initially)
+      if (res.data.data) {
+        set({ connectedGateway: res.data.data, gatewayScanError: null, gatewayScanMessage: null });
+      }
+
+      return { success: true, data: res.data.data };
+    } catch (err) {
+      console.error('Gateway manual registration error:', err);
+      return { success: false, error: err.response?.data?.message || err.message };
+    }
+  },
+
   evaluateTimeouts: () => {
     const s = get();
     
@@ -698,6 +725,15 @@ const useStore = create((set, get) => ({
   // ── [REMOVED] assignDeviceToRoom ───────────────────────────────
   // Superseded by bindDeviceToNode() + autoBindDevices().
   // RoomDeviceAssignment.jsx calls bindDeviceToNode() directly.
+
+  // ── Gateway/Hub state ────────────────────────────────────────────────────
+  connectedGateway: null,
+  gatewayScanning: false,
+  gatewayScanError: null,
+  gatewayScanMessage: null,
+  
+  // ── Live Radar state ──────────────────────────────────────────────────────
+  liveRadarTargets: [],
 
   // ── Gateway node ───────────────────────────────────────────────────────────
   updateGatewayNode(updates) {

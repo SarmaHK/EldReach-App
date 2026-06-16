@@ -3,6 +3,8 @@ const crypto = require('crypto');
 const url = require('url');
 const gatewayManager = require('./gatewayManager');
 const securityLogger = require('./logger');
+const socketService = require('./socketService');
+const Alert = require('../models/Alert');
 
 /**
  * Gateway WebSocket Server
@@ -34,6 +36,7 @@ const MSG_TYPES = {
   REGISTER_GATEWAY: 'REGISTER_GATEWAY',
   HEARTBEAT: 'HEARTBEAT',
   SENSOR_VERIFIED: 'SENSOR_VERIFIED',
+  TELEMETRY_STREAM: 'TELEMETRY_STREAM',
 
   // Backend → Gateway
   REGISTRATION_ACK: 'REGISTRATION_ACK',
@@ -179,6 +182,11 @@ const initGatewayWebSocket = () => {
             handleSensorVerified(message);
             break;
 
+          // ── TELEMETRY_STREAM (live mmWave radar data) ──
+          case MSG_TYPES.TELEMETRY_STREAM:
+            await handleTelemetryStream(message, registeredGatewayId);
+            break;
+
           default:
             console.warn(`[GatewayWS] Unknown message type: ${message.type}`);
             sendMessage(ws, {
@@ -285,6 +293,59 @@ const handleSensorVerified = (message) => {
   const resolved = gatewayManager.resolveCommand(requestId, message);
   if (resolved) {
     console.log(`[GatewayWS] Sensor verification response matched for requestId: ${requestId}`);
+  }
+};
+
+/**
+ * Handle TELEMETRY_STREAM from gateway.
+ */
+const handleTelemetryStream = async (message, registeredGatewayId) => {
+  const gatewayId = message.gatewayId || registeredGatewayId;
+  if (!gatewayId) return;
+
+  // Log to terminal so user can see it arrived
+  console.log(`[GatewayWS] TELEMETRY_STREAM received from ${gatewayId} with ${message.targets ? message.targets.length : 0} targets`);
+
+  // Update lastSeen
+  await gatewayManager.handleHeartbeat(gatewayId);
+
+  // Broadcast to frontend
+  const io = socketService.getIO();
+  if (io) {
+    io.emit('gateway:telemetry', message);
+  }
+
+  // Handle Alarms (generate Alerts if needed)
+  if (message.targets && Array.isArray(message.targets)) {
+    for (const target of message.targets) {
+      if (target.alarm > 0) {
+        // Generate an alert
+        const alertType = target.alarm === 1 ? 'Warning' : 'Critical';
+        const alertMessage = target.alarm === 1 ? 'Movement Velocity Warning detected' : 'Critical Warning detected';
+        
+        try {
+          const newAlert = await Alert.create({
+            deviceId: gatewayId,
+            type: alertType,
+            message: alertMessage,
+            status: 'active'
+          });
+          
+          if (io) {
+            io.emit('alert:new', {
+              _id: newAlert._id,
+              deviceId: newAlert.deviceId,
+              type: newAlert.type,
+              message: newAlert.message,
+              createdAt: newAlert.createdAt,
+              status: newAlert.status
+            });
+          }
+        } catch (err) {
+          console.error('[GatewayWS] Failed to save alert:', err);
+        }
+      }
+    }
   }
 };
 

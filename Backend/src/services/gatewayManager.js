@@ -29,9 +29,9 @@ let timeoutCheckerInterval = null;
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
-const HEARTBEAT_TIMEOUT = parseInt(process.env.GATEWAY_HEARTBEAT_TIMEOUT, 10) || 60000;
+const HEARTBEAT_TIMEOUT = 15000; // 15 seconds for fast testing
 const COMMAND_TIMEOUT = parseInt(process.env.GATEWAY_COMMAND_TIMEOUT, 10) || 10000;
-const TIMEOUT_CHECK_INTERVAL = 15000; // How often to scan for stale gateways
+const TIMEOUT_CHECK_INTERVAL = 5000; // Scan every 5 seconds
 
 // ── Gateway Lifecycle ──────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ const removeGateway = async (gatewayId) => {
   const gateway = await Gateway.findOneAndUpdate(
     { gatewayId },
     { $set: { status: 'OFFLINE' } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   console.log(`[GatewayManager] Removed gateway: ${gatewayId}`);
@@ -260,13 +260,22 @@ const getConnectedGatewayIds = () => {
 
 // ── Heartbeat Timeout Checker ──────────────────────────────────────────────────
 
-/**
- * Start the periodic timeout checker.
- * Marks gateways as OFFLINE if no heartbeat received within HEARTBEAT_TIMEOUT.
- */
-const startTimeoutChecker = () => {
+const startTimeoutChecker = async () => {
   if (timeoutCheckerInterval) {
     clearInterval(timeoutCheckerInterval);
+  }
+
+  // Clear any stale ONLINE gateways from the database on server startup
+  try {
+    const result = await Gateway.updateMany(
+      { status: 'ONLINE' },
+      { $set: { status: 'OFFLINE' } }
+    );
+    if (result.modifiedCount > 0) {
+      console.log(`[GatewayManager] Cleared ${result.modifiedCount} stale gateway connections on startup.`);
+    }
+  } catch (err) {
+    console.error('[GatewayManager] Failed to clear stale gateways:', err);
   }
 
   console.log(`[GatewayManager] Timeout checker started (interval: ${TIMEOUT_CHECK_INTERVAL / 1000}s, timeout: ${HEARTBEAT_TIMEOUT / 1000}s)`);

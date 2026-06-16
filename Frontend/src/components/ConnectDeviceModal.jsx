@@ -17,6 +17,25 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
+  const [scanning, setScanning] = useState(mode === 'scan');
+  const [scanComplete, setScanComplete] = useState(false);
+
+  React.useEffect(() => {
+    if (mode === 'scan' && isOpen) {
+      setScanning(true);
+      setScanComplete(false);
+      // Simulate scanning duration
+      const timer = setTimeout(() => {
+        setScanning(false);
+        setScanComplete(true);
+      }, 4000);
+      return () => clearTimeout(timer);
+    } else {
+      setScanning(false);
+      setScanComplete(false);
+    }
+  }, [mode, isOpen]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
@@ -113,16 +132,16 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
         <div className="modal__header">
           <div className="modal__header-left">
             <div className="modal__icon">
-              <QrCode size={20} />
+              {scanning ? <Radio className="spin-animation" size={20} /> : <QrCode size={20} />}
             </div>
             <div>
               <h2 className="modal__title">
-                {mode === 'manual' ? 'Add Device Manually' : 'Add Device'}
+                {scanning ? 'Scanning for Devices...' : (mode === 'manual' ? 'Add Device Manually' : 'Add Device')}
               </h2>
               <p className="modal__subtitle">
-                {mode === 'manual' 
+                {scanning ? 'Looking for nearby active devices' : (mode === 'manual' 
                   ? 'Enter the 12-character device code' 
-                  : 'Find the device code on your device or QR label'}
+                  : 'Find the device code on your device or QR label')}
               </p>
             </div>
           </div>
@@ -131,104 +150,127 @@ export default function ConnectDeviceModal({ isOpen, mode, onClose }) {
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="modal__body">
-          {/* Gateway Banner */}
-          <div className="modal__info-box" style={{ background: 'var(--status-active-bg)', color: 'var(--status-active)', border: '1px solid var(--status-active)' }}>
-            <Radio size={14} />
-            <span>Linking to Home Hub: <strong>{connectedGateway?.gatewayId || 'Unknown'}</strong></span>
-          </div>
-
-          {/* MAC Address (Simulated QR) */}
-          <div className="modal__field">
-            <label className="modal__label">
-              <QrCode size={14} />
-              Device Code <span className="modal__required">*</span>
-            </label>
-            <input
-              type="text"
-              className="modal__input"
-              placeholder="e.g. 00:1B:44:11:3A:B7"
-              value={macAddress}
-              onChange={(e) => setMacAddress(e.target.value)}
-              autoFocus
-            />
-            <span className="modal__hint">
-              {mode === 'manual' ? 'Format: 12-character code (XX:XX:XX:XX:XX:XX)' : 'Find the device code on your device'}
-            </span>
-          </div>
-
-          {/* Custom Name */}
-          <div className="modal__field">
-            <label className="modal__label">
-              <DoorOpen size={14} />
-              Room Name <span className="modal__optional">(optional)</span>
-            </label>
-            <input
-              type="text"
-              className="modal__input"
-              placeholder="e.g. Kitchen, Living Room"
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-            />
-            <span className="modal__hint">
-              Assign a friendly name to this device
-            </span>
-          </div>
-
-          {/* Room Selection */}
-          <div className="modal__field">
-            <label className="modal__label">
-              <DoorOpen size={14} />
-              Room <span className="modal__optional">(optional)</span>
-            </label>
-            {logicalRooms.length > 0 ? (
-              <select
-                className="modal__input modal__select"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-              >
-                <option value="">— Select a room —</option>
-                {logicalRooms.map(room => (
-                  <option key={room.id} value={room.id}>
-                    {room.name || room.id}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="modal__info-box">
-                <DoorOpen size={14} />
-                <span>No rooms configured yet. Create rooms in the Room Architect first.</span>
+        {/* Form or Scanning State */}
+        <div className="modal__body">
+          {scanning ? (
+            <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+              <div className="empty-state-card__icon-ring" style={{ margin: '0 auto 1.5rem', width: '80px', height: '80px' }}>
+                <div className="empty-state-card__icon gateway-scan-icon">
+                  <Radio size={40} strokeWidth={1.5} className="scan-pulse" />
+                </div>
+                <div className="empty-state-card__pulse" />
               </div>
-            )}
-          </div>
-
-          {/* Error / Success */}
-          {error && (
-            <div className="modal__alert modal__alert--error">
-              {error}
+              <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Searching...</h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                Please ensure your device is powered on and near the Home Hub.
+              </p>
             </div>
-          )}
-          {success && (
-            <div className="modal__alert modal__alert--success">
-              ✓ Device added successfully!
-            </div>
-          )}
+          ) : (
+            <form onSubmit={handleSubmit}>
+              {/* Gateway Banner */}
+              <div className="modal__info-box" style={{ background: 'var(--status-active-bg)', color: 'var(--status-active)', border: '1px solid var(--status-active)' }}>
+                <Radio size={14} />
+                <span>Linking to Home Hub: <strong>{connectedGateway?.gatewayId || 'Unknown'}</strong></span>
+              </div>
 
-          {/* Actions */}
-          <div className="modal__actions">
-            <button type="button" className="modal__btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="modal__btn-primary"
-              disabled={submitting || success}
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </form>
+              {scanComplete && (
+                <div className="modal__alert modal__alert--error" style={{ marginBottom: '1rem' }}>
+                  No devices automatically found. Please enter the code manually.
+                </div>
+              )}
+
+              {/* MAC Address (Simulated QR) */}
+              <div className="modal__field">
+                <label className="modal__label">
+                  <QrCode size={14} />
+                  Device Code <span className="modal__required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="modal__input"
+                  placeholder="e.g. 00:1B:44:11:3A:B7"
+                  value={macAddress}
+                  onChange={(e) => setMacAddress(e.target.value)}
+                  autoFocus={!scanComplete}
+                />
+                <span className="modal__hint">
+                  {mode === 'manual' ? 'Format: 12-character code (XX:XX:XX:XX:XX:XX)' : 'Find the device code on your device'}
+                </span>
+              </div>
+
+              {/* Custom Name */}
+              <div className="modal__field">
+                <label className="modal__label">
+                  <DoorOpen size={14} />
+                  Room Name <span className="modal__optional">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  className="modal__input"
+                  placeholder="e.g. Kitchen, Living Room"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                />
+                <span className="modal__hint">
+                  Assign a friendly name to this device
+                </span>
+              </div>
+
+              {/* Room Selection */}
+              <div className="modal__field">
+                <label className="modal__label">
+                  <DoorOpen size={14} />
+                  Room <span className="modal__optional">(optional)</span>
+                </label>
+                {logicalRooms.length > 0 ? (
+                  <select
+                    className="modal__input modal__select"
+                    value={roomId}
+                    onChange={(e) => setRoomId(e.target.value)}
+                  >
+                    <option value="">— Select a room —</option>
+                    {logicalRooms.map(room => (
+                      <option key={room.id} value={room.id}>
+                        {room.name || room.id}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="modal__info-box">
+                    <DoorOpen size={14} />
+                    <span>No rooms configured yet. Create rooms in the Room Architect first.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Error / Success */}
+              {error && (
+                <div className="modal__alert modal__alert--error">
+                  {error}
+                </div>
+              )}
+              {success && (
+                <div className="modal__alert modal__alert--success">
+                  ✓ Device added successfully!
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="modal__actions">
+                <button type="button" className="modal__btn-secondary" onClick={onClose}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="modal__btn-primary"
+                  disabled={submitting || success}
+                >
+                  {submitting ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

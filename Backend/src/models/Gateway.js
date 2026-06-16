@@ -25,6 +25,11 @@ const gatewaySchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    customName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     status: {
       type: String,
       enum: ['ONLINE', 'OFFLINE'],

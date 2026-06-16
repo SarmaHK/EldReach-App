@@ -126,8 +126,58 @@ const getAllGateways = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Manually register a gateway by MAC address
+ * @route   POST /api/gateways/register
+ */
+const registerGatewayManual = async (req, res) => {
+  try {
+    const { gatewayId, systemId, customName } = req.body;
+
+    if (!gatewayId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'gatewayId is required',
+      });
+    }
+
+    const gateway = await Gateway.findOneAndUpdate(
+      { gatewayId },
+      {
+        $set: {
+          systemId: systemId || undefined,
+          customName: customName || undefined,
+        },
+        $setOnInsert: {
+          gatewayId,
+          status: 'OFFLINE',
+          lastSeen: new Date(),
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+      }
+    );
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Gateway registered successfully',
+      data: gateway,
+    });
+  } catch (error) {
+    console.error('[GatewayController] Manual registration failed:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to register gateway.',
+    });
+  }
+};
+
 module.exports = {
   connectGateway,
   getGatewayStatus,
   getAllGateways,
+  registerGatewayManual,
 };
