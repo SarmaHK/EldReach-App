@@ -306,6 +306,20 @@ const handleTelemetryStream = async (message, registeredGatewayId) => {
   // Log to terminal so user can see it arrived
   console.log(`[GatewayWS] TELEMETRY_STREAM received from ${gatewayId} with ${message.targets ? message.targets.length : 0} targets`);
 
+  // Normalize targets: Real IoT hardware might send stringified JSON objects
+  if (message.targets && Array.isArray(message.targets)) {
+    message.targets = message.targets.map(t => {
+      if (typeof t === 'string') {
+        try {
+          return JSON.parse(t);
+        } catch (e) {
+          return t;
+        }
+      }
+      return t;
+    });
+  }
+
   // Update lastSeen
   await gatewayManager.handleHeartbeat(gatewayId);
 
