@@ -1,60 +1,242 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import useStore from '../store/useStore';
 import { AlertTriangle } from 'lucide-react';
 
 export default function LiveRadar() {
-  const targets = useStore(s => s.liveRadarTargets);
+  // Low-frequency UI state for the header
+  const [status, setStatus] = useState({
+    text: 'Scanning...',
+    color: '#e6edf3',
+    showIcon: false,
+  });
 
-  // Constants to match python script's "Room View"
-  const ROOM_WIDTH_MM = 5000;
-  const ROOM_DEPTH_MM = 4000;
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
   
-  // For SVG coordinate system
-  const SVG_W = 500;
-  const SVG_H = 400;
+  // High-frequency data store (bypasses React rendering)
+  const latestDataRef = useRef([]);
+  // To track changes and avoid unnecessary React state updates
+  const previousStatusStringRef = useRef('Scanning...|#e6edf3|false');
 
-  const mapX = (val) => (val / ROOM_WIDTH_MM) * SVG_W;
-  const mapY = (val) => SVG_H - (val / ROOM_DEPTH_MM) * SVG_H;
+  useEffect(() => {
+    // 1. Subscribe to Zustand store changes without triggering React re-renders
+    const unsubscribe = useStore.subscribe((state) => {
+      // Store the latest packet for the Canvas animation loop
+      latestDataRef.current = state.liveRadarTargets || [];
+    });
 
-  const getTargetColor = (alarm) => {
-    if (alarm === 2) return '#ff7b72'; // Red
-    if (alarm === 1) return '#f59e0b'; // Amber
-    return '#58a6ff'; // Blue
-  };
+    let animationFrameId;
 
-  const hasCritical = targets.some(t => t.alarm === 2);
-  const hasWarning = targets.some(t => t.alarm === 1);
+    // Drawing function
+    const drawRadar = (ctx, width, height, targets) => {
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
 
-  let statusColor = '#e6edf3';
-  let statusText = 'Scanning...';
-  if (hasCritical) {
-    statusColor = '#ff7b72';
-    statusText = 'Critical Warning Detected!';
-  } else if (hasWarning) {
-    statusColor = '#f59e0b';
-    statusText = 'Movement Warning';
-  } else if (targets.length > 0) {
-    statusColor = '#3fb950';
-    statusText = `Tracking ${targets.length} target${targets.length > 1 ? 's' : ''}`;
-  }
+      // Constants to match python script's "Room View"
+      const ROOM_WIDTH_MM = 10000; // -5000 to 5000
+      const ROOM_DEPTH_MM = 6000;  // 0 to 6000
 
-  // Draw Gate Arcs G1 to G8
-  const gates = [1, 2, 3, 4, 5, 6, 7, 8];
-  
-  // Calculate FOV polygon
-  const angleRad = 45 * Math.PI / 180;
-  const fovRad = 60 * Math.PI / 180;
-  const rangeMm = 6000;
-  const fovStartAngle = angleRad - fovRad; 
-  const fovEndAngle = angleRad + fovRad;   
-  
-  let fovPoints = `0,${SVG_H} `;
-  for(let a = fovStartAngle; a <= fovEndAngle; a += 0.05) {
-    let x = Math.min(ROOM_WIDTH_MM, Math.max(0, rangeMm * Math.cos(a)));
-    let y = Math.min(ROOM_DEPTH_MM, Math.max(0, rangeMm * Math.sin(a)));
-    fovPoints += `${mapX(x)},${mapY(y)} `;
-  }
-  fovPoints += `0,${SVG_H}`;
+      const mapX = (val) => ((val + 5000) / ROOM_WIDTH_MM) * width;
+      const mapY = (val) => height - (val / ROOM_DEPTH_MM) * height;
+
+      // 1. Draw FOV Cone
+      const angleRad = 90 * Math.PI / 180; // Pointing up
+      const fovRad = 60 * Math.PI / 180;
+      const rangeMm = 6000;
+      const fovStartAngle = angleRad - fovRad; 
+      const fovEndAngle = angleRad + fovRad;   
+      
+      ctx.fillStyle = 'rgba(88, 166, 255, 0.06)'; // #58a6ff with opacity
+      ctx.beginPath();
+      ctx.moveTo(mapX(0), mapY(0));
+      for(let a = fovStartAngle; a <= fovEndAngle; a += 0.05) {
+        let x = rangeMm * Math.cos(a);
+        let y = rangeMm * Math.sin(a);
+        ctx.lineTo(mapX(x), mapY(y));
+      }
+      ctx.lineTo(mapX(0), mapY(0));
+      ctx.fill();
+
+      // 2. Draw Grid Lines
+      ctx.strokeStyle = '#21262d';
+      ctx.lineWidth = 1;
+      
+      ctx.beginPath();
+      for (let x = -5000; x <= 5000; x += 1000) {
+        ctx.moveTo(mapX(x), 0);
+        ctx.lineTo(mapX(x), height);
+      }
+      for (let y = 1000; y <= 6000; y += 1000) {
+        ctx.moveTo(0, mapY(y));
+        ctx.lineTo(width, mapY(y));
+      }
+      ctx.stroke();
+
+      // 3. Draw Gate Arcs (Distance Rings)
+      const gates = [1, 2, 3, 4, 5, 6, 7, 8];
+      gates.forEach(g => {
+        const dist = g * 750;
+        const rx = mapX(dist) - mapX(0);
+        const ry = height - mapY(dist); // since mapY(0) is height
+        
+        ctx.beginPath();
+        ctx.ellipse(mapX(0), mapY(0), rx, ry, 0, 0, 2 * Math.PI);
+        ctx.stroke();
+        
+        // Gate Label at 60 deg (right side of cone)
+        if (dist <= 6000) {
+          ctx.fillStyle = '#484f58';
+          ctx.font = '10px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const textX = mapX(0) + rx * Math.cos(60 * Math.PI / 180);
+          const textY = mapY(0) - ry * Math.sin(60 * Math.PI / 180);
+          ctx.fillText(`G${g}`, textX, textY);
+        }
+      });
+
+      // 4. Draw Axis Labels
+      ctx.fillStyle = '#e6edf3';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      for (let x = -5000; x <= 5000; x += 1000) {
+        if (x !== 0) ctx.fillText(x.toString(), mapX(x), height - 4);
+      }
+      
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      for (let y = 1000; y <= 6000; y += 1000) {
+        ctx.fillText(y.toString(), mapX(0) + 4, mapY(y));
+      }
+      
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('0', mapX(0), height - 4);
+
+      // 5. Draw Targets
+      targets.forEach((t, idx) => {
+        let targetData = t;
+        if (typeof t === 'string') {
+          try { targetData = JSON.parse(t); } catch(e) {}
+        }
+
+        const xVal = typeof targetData.x === 'number' ? targetData.x : parseFloat(targetData.x) || 0;
+        const yVal = typeof targetData.y === 'number' ? targetData.y : parseFloat(targetData.y) || 0;
+        
+        if (xVal > 5000 || xVal < -5000 || yVal > 6000 || yVal < 0) return;
+
+        const px = mapX(xVal);
+        const py = mapY(yVal);
+        
+        let color = '#58a6ff'; // Blue
+        if (targetData.alarm === 2) color = '#ff7b72'; // Red
+        else if (targetData.alarm === 1) color = '#f59e0b'; // Amber
+        
+        const speed = typeof targetData.speed === 'number' ? targetData.speed : parseFloat(targetData.speed) || 0;
+
+        // Draw shadow / glow
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = color;
+        
+        // Target circle
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+        
+        ctx.shadowBlur = 0; // Reset shadow
+        
+        // Target labels
+        ctx.fillStyle = color;
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`T${targetData.id ?? '0'}`, px, py - 18);
+        ctx.fillText(`${speed}mm/s`, px, py - 6);
+      });
+
+      // 6. Draw Sensor marker
+      ctx.beginPath();
+      ctx.moveTo(mapX(0), mapY(0) - 8);
+      ctx.lineTo(mapX(0) + 8, mapY(0));
+      ctx.lineTo(mapX(0) - 8, mapY(0));
+      ctx.fillStyle = '#f0883e'; // Orange
+      ctx.fill();
+
+      // Sensor details overlay text
+      ctx.fillStyle = '#f0883e';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Sensor', 12, height - 28);
+      ctx.fillText('6000mm Range', 12, height - 16);
+      ctx.fillText('120° FOV', 12, height - 4);
+    };
+
+    // 2. Setup rendering loop
+    const renderLoop = () => {
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+
+      const ctx = canvas.getContext('2d');
+      const targets = latestDataRef.current;
+
+      // Handle canvas resizing + high DPI scaling
+      const dpr = window.devicePixelRatio || 1;
+      const rect = container.getBoundingClientRect();
+      
+      if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+      }
+
+      // Draw the frame
+      drawRadar(ctx, rect.width, rect.height, targets);
+
+      // 3. Evaluate low-frequency UI state (Headers)
+      const hasCritical = targets.some(t => {
+        let td = t;
+        if (typeof t === 'string') try { td = JSON.parse(t); } catch(e){}
+        return td.alarm === 2;
+      });
+      
+      const hasWarning = targets.some(t => {
+        let td = t;
+        if (typeof t === 'string') try { td = JSON.parse(t); } catch(e){}
+        return td.alarm === 1;
+      });
+
+      let nextStatus = { text: 'Scanning...', color: '#e6edf3', showIcon: false };
+      if (hasCritical) {
+        nextStatus = { text: 'Critical Warning Detected!', color: '#ff7b72', showIcon: true };
+      } else if (hasWarning) {
+        nextStatus = { text: 'Movement Warning', color: '#f59e0b', showIcon: true };
+      } else if (targets.length > 0) {
+        nextStatus = { text: `Tracking ${targets.length} target${targets.length > 1 ? 's' : ''}`, color: '#3fb950', showIcon: false };
+      }
+
+      // Only update React state if the visual outcome actually changed
+      const nextStatusString = `${nextStatus.text}|${nextStatus.color}|${nextStatus.showIcon}`;
+      if (nextStatusString !== previousStatusStringRef.current) {
+        previousStatusStringRef.current = nextStatusString;
+        setStatus(nextStatus);
+      }
+
+      // Loop
+      animationFrameId = requestAnimationFrame(renderLoop);
+    };
+
+    // Start the loop
+    animationFrameId = requestAnimationFrame(renderLoop);
+
+    return () => {
+      unsubscribe();
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
 
   return (
     <div className="live-radar" style={{
@@ -70,163 +252,33 @@ export default function LiveRadar() {
       fontFamily: 'sans-serif'
     }}>
       
-      {/* Header */}
+      {/* Header - Handled by low-frequency React state */}
       <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h3 style={{ margin: 0, color: '#e6edf3', fontSize: '1.1rem', fontWeight: 500 }}>Room View — Live Tracking</h3>
         </div>
-        <div style={{ fontSize: '0.85rem', color: statusColor, display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {(hasCritical || hasWarning) && <AlertTriangle size={14} />}
-          {statusText}
+        <div style={{ fontSize: '0.85rem', color: status.color, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {status.showIcon && <AlertTriangle size={14} />}
+          {status.text}
         </div>
       </div>
 
-      {/* Radar Plot Area */}
-      <div style={{
-        position: 'relative',
-        width: '100%',
-        aspectRatio: '5 / 4',
-        background: '#0d1117',
-        border: '1px solid #21262d',
-        overflow: 'hidden'
-      }}>
-        
-        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
-          
-          {/* FOV Cone */}
-          <polygon points={fovPoints} fill="#58a6ff" opacity="0.06" />
-
-          {/* Grid lines */}
-          {[1000, 2000, 3000, 4000].map(x => (
-            <line key={`v-${x}`} x1={mapX(x)} y1={0} x2={mapX(x)} y2={SVG_H} stroke="#21262d" strokeWidth="1" />
-          ))}
-          {[1000, 2000, 3000, 4000].map(y => (
-            <line key={`h-${y}`} x1={0} y1={mapY(y)} x2={SVG_W} y2={mapY(y)} stroke="#21262d" strokeWidth="1" />
-          ))}
-
-          {/* Distance Arcs and Gate Labels */}
-          {gates.map(g => {
-            const dist = g * 750;
-            const rx = mapX(dist) - mapX(0); 
-            const ry = SVG_H - mapY(dist);
-            
-            return (
-              <g key={`gate-${g}`}>
-                <ellipse
-                  cx={0}
-                  cy={SVG_H}
-                  rx={rx}
-                  ry={ry}
-                  fill="none"
-                  stroke="#21262d"
-                  strokeWidth="1"
-                />
-                {/* Gate Label at 45 deg */}
-                {dist < Math.sqrt(ROOM_WIDTH_MM*ROOM_WIDTH_MM + ROOM_DEPTH_MM*ROOM_DEPTH_MM) && (
-                  <text 
-                    x={rx * Math.cos(45 * Math.PI / 180)} 
-                    y={SVG_H - ry * Math.sin(45 * Math.PI / 180)} 
-                    fill="#484f58" 
-                    fontSize="10"
-                    textAnchor="middle"
-                  >
-                    G{g}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-
-          {/* X/Y Axis Labels (1000, 2000, etc) */}
-          {[1000, 2000, 3000, 4000].map(x => (
-             <text key={`lx-${x}`} x={mapX(x)} y={SVG_H - 4} fill="#e6edf3" fontSize="10" textAnchor="middle">{x}</text>
-          ))}
-          {[1000, 2000, 3000, 4000].map(y => (
-             <text key={`ly-${y}`} x={12} y={mapY(y)} fill="#e6edf3" fontSize="10" alignmentBaseline="middle" textAnchor="middle">{y}</text>
-          ))}
-          <text x={8} y={SVG_H - 4} fill="#e6edf3" fontSize="10" textAnchor="middle">0</text>
-        </svg>
-
-        {/* Targets */}
-        {targets.map((t, idx) => {
-          let targetData = t;
-          if (typeof t === 'string') {
-            try { targetData = JSON.parse(t); } catch(e) {}
-          }
-
-          const xVal = typeof targetData.x === 'number' ? targetData.x : parseFloat(targetData.x) || 0;
-          const yVal = typeof targetData.y === 'number' ? targetData.y : parseFloat(targetData.y) || 0;
-          
-          // CSS percentage coordinates
-          const leftPct = (xVal / ROOM_WIDTH_MM) * 100;
-          const topPct = (1 - (yVal / ROOM_DEPTH_MM)) * 100;
-          
-          const color = getTargetColor(targetData.alarm);
-          const speed = typeof targetData.speed === 'number' ? targetData.speed : parseFloat(targetData.speed) || 0;
-          
-          return (
-            <div
-              key={targetData.id ?? idx}
-              style={{
-                position: 'absolute',
-                left: `${Math.max(0, Math.min(100, leftPct))}%`,
-                top: `${Math.max(0, Math.min(100, topPct))}%`,
-                width: '12px',
-                height: '12px',
-                backgroundColor: color,
-                borderRadius: '50%',
-                transform: 'translate(-50%, -50%)',
-                boxShadow: `0 0 8px ${color}`,
-                transition: 'all 0.3s ease-out',
-                zIndex: 10,
-                display: (xVal > ROOM_WIDTH_MM || yVal > ROOM_DEPTH_MM || xVal < 0 || yVal < 0) ? 'none' : 'block'
-              }}
-            >
-              {/* Target Details */}
-              <div style={{
-                position: 'absolute',
-                top: '16px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                color: color,
-                fontSize: '11px',
-                fontWeight: '600',
-                whiteSpace: 'nowrap',
-                pointerEvents: 'none'
-              }}>
-                T{targetData.id ?? '0'}
-                <br/>
-                {speed}mm/s
-              </div>
-            </div>
-          );
-        })}
-        
-        {/* Sensor marker icon */}
-        <div style={{
-          position: 'absolute',
-          bottom: '0',
-          left: '0',
-          width: '8px',
-          height: '8px',
-          background: '#f0883e',
-          clipPath: 'polygon(0 100%, 100% 100%, 0 0)'
-        }}></div>
-
-        {/* Sensor details overlay */}
-        <div style={{
-          position: 'absolute',
-          bottom: '8px',
-          left: '12px',
-          color: '#f0883e',
-          fontSize: '10px',
-          lineHeight: '1.2',
-          pointerEvents: 'none'
-        }}>
-          Sensor<br/>
-          1800mm<br/>
-          45°
-        </div>
+      {/* Radar Plot Area - High frequency Canvas */}
+      <div 
+        ref={containerRef}
+        style={{
+          position: 'relative',
+          width: '100%',
+          aspectRatio: '5 / 3',
+          background: '#0d1117',
+          border: '1px solid #21262d',
+          overflow: 'hidden'
+        }}
+      >
+        <canvas 
+          ref={canvasRef} 
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        />
       </div>
 
       <div style={{ color: '#e6edf3', fontSize: '11px', marginTop: '2px' }}>
