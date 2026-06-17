@@ -46,7 +46,7 @@ const startMapping = async (roomId) => {
   const room = await Room.findOneAndUpdate(
     { roomId },
     { $set: { mappingInProgress: true, collectedPoints: [] } },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
   
   console.log(`[Mapping] Started mapping for room: ${roomId}`);

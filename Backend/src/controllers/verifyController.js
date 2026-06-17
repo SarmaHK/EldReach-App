@@ -120,7 +120,7 @@ const verifySensor = async (req, res) => {
         },
       },
       {
-        new: true,
+        returnDocument: 'after',
         upsert: true,
         runValidators: true,
       }

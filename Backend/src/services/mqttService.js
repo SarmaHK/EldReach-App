@@ -110,7 +110,7 @@ async function handleSensorTelemetry(payload) {
         status: 'REGISTERED',
       }
     },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
 
   // 2. Save Telemetry Record to DeviceLog
@@ -151,7 +151,7 @@ async function handleSensorStatus(payload) {
   const device = await Device.findOneAndUpdate(
     { deviceId: formattedMac },
     { $set: { status: status, lastSeen: time } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (device) {

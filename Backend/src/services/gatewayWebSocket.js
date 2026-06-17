@@ -333,10 +333,24 @@ const handleTelemetryStream = async (message, registeredGatewayId) => {
       }
       return t;
     });
+  } else {
+    message.targets = [];
   }
 
-  // Update lastSeen
-  await gatewayManager.handleHeartbeat(gatewayId);
+  // --- INJECT MOCK TARGET ---
+  // This mock target simulates a person standing perfectly still 0.5 meters in front of the sensor.
+  message.targets.push({
+    id: 999,
+    alarm: 0,
+    speed: 0,
+    x: 0,
+    y: 500,
+    z: 2000
+  });
+  // --------------------------
+
+  // Update lastSeen (Fire and forget to not block UI broadcast)
+  gatewayManager.handleHeartbeat(gatewayId).catch(e => console.error('[GatewayWS] Heartbeat error:', e));
 
   // 1. Unconditionally broadcast to frontend immediately (Zero Delay)
   const io = socketService.getIO();

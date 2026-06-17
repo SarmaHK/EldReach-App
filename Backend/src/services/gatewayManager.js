@@ -80,7 +80,7 @@ const registerGateway = async (gatewayId, systemId, ws) => {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       upsert: true,
       runValidators: true,
     }
@@ -127,6 +127,8 @@ const removeGateway = async (gatewayId) => {
   }
 };
 
+const lastHeartbeatDBUpdate = new Map();
+
 /**
  * Handle a heartbeat from a gateway.
  *
@@ -135,15 +137,21 @@ const removeGateway = async (gatewayId) => {
  */
 const handleHeartbeat = async (gatewayId) => {
   const entry = activeGateways.get(gatewayId);
+  const now = new Date();
   if (entry) {
-    entry.lastSeen = new Date();
+    entry.lastSeen = now;
   }
 
-  // Periodic DB update (not every heartbeat to reduce writes)
-  await Gateway.updateOne(
-    { gatewayId },
-    { $set: { lastSeen: new Date(), status: 'ONLINE' } }
-  );
+  // ACTUALLY throttle periodic DB update to once every 5 seconds to reduce writes
+  const lastUpdate = lastHeartbeatDBUpdate.get(gatewayId) || 0;
+  if (now.getTime() - lastUpdate > 5000) {
+    lastHeartbeatDBUpdate.set(gatewayId, now.getTime());
+    // Fire and forget to avoid blocking
+    Gateway.updateOne(
+      { gatewayId },
+      { $set: { lastSeen: now, status: 'ONLINE' } }
+    ).catch(err => console.error('[GatewayManager] Heartbeat DB update failed', err));
+  }
 };
 
 // ── Command Dispatching ────────────────────────────────────────────────────────
