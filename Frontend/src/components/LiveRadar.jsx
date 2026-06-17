@@ -1,213 +1,237 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import useStore from '../store/useStore';
-import { Target, Activity, AlertTriangle, Zap } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 export default function LiveRadar() {
   const targets = useStore(s => s.liveRadarTargets);
 
-  // Constants for radar scale
-  const MAX_RANGE_MM = 6000; // 6 meters max range
-  const RADAR_SIZE = 300; // SVG size
-  const CENTER_X = RADAR_SIZE / 2;
-  const SENSOR_Y = RADAR_SIZE; // Sensor is at the bottom center of the view
+  // Constants to match python script's "Room View"
+  const ROOM_WIDTH_MM = 5000;
+  const ROOM_DEPTH_MM = 4000;
+  
+  // For SVG coordinate system
+  const SVG_W = 500;
+  const SVG_H = 400;
 
-  // Map mm to SVG pixels
-  // x: -MAX_RANGE_MM to +MAX_RANGE_MM maps to 0 to RADAR_SIZE
-  // y: 0 to MAX_RANGE_MM maps to SENSOR_Y to 0
-  const mapCoord = (val, isY = false) => {
-    if (isY) {
-      // y=0 is SENSOR_Y, y=MAX is 0
-      return SENSOR_Y - (val / MAX_RANGE_MM) * SENSOR_Y;
-    } else {
-      // x=0 is CENTER_X, x=-MAX is 0, x=+MAX is RADAR_SIZE
-      return CENTER_X + (val / MAX_RANGE_MM) * (RADAR_SIZE / 2);
-    }
-  };
+  const mapX = (val) => (val / ROOM_WIDTH_MM) * SVG_W;
+  const mapY = (val) => SVG_H - (val / ROOM_DEPTH_MM) * SVG_H;
 
   const getTargetColor = (alarm) => {
-    if (alarm === 2) return '#ef4444'; // Red for critical
-    if (alarm === 1) return '#f59e0b'; // Amber for warning
-    return '#10b981'; // Green for normal
+    if (alarm === 2) return '#ff7b72'; // Red
+    if (alarm === 1) return '#f59e0b'; // Amber
+    return '#58a6ff'; // Blue
   };
 
   const hasCritical = targets.some(t => t.alarm === 2);
   const hasWarning = targets.some(t => t.alarm === 1);
 
-  let statusColor = 'var(--text-secondary)';
-  let statusText = 'Scanning area...';
+  let statusColor = '#e6edf3';
+  let statusText = 'Scanning...';
   if (hasCritical) {
-    statusColor = '#ef4444';
+    statusColor = '#ff7b72';
     statusText = 'Critical Warning Detected!';
   } else if (hasWarning) {
     statusColor = '#f59e0b';
     statusText = 'Movement Warning';
   } else if (targets.length > 0) {
-    statusColor = '#10b981';
+    statusColor = '#3fb950';
     statusText = `Tracking ${targets.length} target${targets.length > 1 ? 's' : ''}`;
   }
 
+  // Draw Gate Arcs G1 to G8
+  const gates = [1, 2, 3, 4, 5, 6, 7, 8];
+  
+  // Calculate FOV polygon
+  const angleRad = 45 * Math.PI / 180;
+  const fovRad = 60 * Math.PI / 180;
+  const rangeMm = 6000;
+  const fovStartAngle = angleRad - fovRad; 
+  const fovEndAngle = angleRad + fovRad;   
+  
+  let fovPoints = `0,${SVG_H} `;
+  for(let a = fovStartAngle; a <= fovEndAngle; a += 0.05) {
+    let x = Math.min(ROOM_WIDTH_MM, Math.max(0, rangeMm * Math.cos(a)));
+    let y = Math.min(ROOM_DEPTH_MM, Math.max(0, rangeMm * Math.sin(a)));
+    fovPoints += `${mapX(x)},${mapY(y)} `;
+  }
+  fovPoints += `0,${SVG_H}`;
+
   return (
     <div className="live-radar" style={{
-      background: 'var(--bg-secondary)',
-      borderRadius: '16px',
-      padding: '1.5rem',
-      border: '1px solid var(--border-color)',
+      background: '#0d1117',
+      borderRadius: '8px',
+      padding: '1.2rem',
+      border: '1px solid #30363d',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      gap: '1.5rem',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-      overflow: 'hidden'
+      gap: '1rem',
+      width: '100%',
+      fontFamily: 'sans-serif'
     }}>
       
       {/* Header */}
       <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{
-            background: 'rgba(16, 185, 129, 0.1)',
-            padding: '8px',
-            borderRadius: '8px',
-            color: '#10b981'
-          }}>
-            <Activity size={20} className="spin-animation-slow" />
-          </div>
-          <div>
-            <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 600 }}>Live Radar</h3>
-            <span style={{ fontSize: '0.85rem', color: statusColor, fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              {(hasCritical || hasWarning) && <AlertTriangle size={12} />}
-              {statusText}
-            </span>
-          </div>
+        <div>
+          <h3 style={{ margin: 0, color: '#e6edf3', fontSize: '1.1rem', fontWeight: 500 }}>Room View — Live Tracking</h3>
         </div>
-        
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'var(--bg-primary)', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
-          Range: 6m
+        <div style={{ fontSize: '0.85rem', color: statusColor, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {(hasCritical || hasWarning) && <AlertTriangle size={14} />}
+          {statusText}
         </div>
       </div>
 
-      {/* Radar SVG */}
+      {/* Radar Plot Area */}
       <div style={{
         position: 'relative',
-        width: RADAR_SIZE,
-        height: RADAR_SIZE,
-        background: '#0f172a',
-        borderRadius: '50% 50% 16px 16px',
-        overflow: 'hidden',
-        border: '2px solid #1e293b',
-        boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)'
+        width: '100%',
+        aspectRatio: '5 / 4',
+        background: '#0d1117',
+        border: '1px solid #21262d',
+        overflow: 'hidden'
       }}>
         
-        {/* Grid lines */}
-        <svg width={RADAR_SIZE} height={RADAR_SIZE} style={{ position: 'absolute', top: 0, left: 0 }}>
-          {/* Distance Arcs (1m, 2m, 3m, 4m, 5m, 6m) */}
-          {[1, 2, 3, 4, 5, 6].map(m => {
-            const r = (m * 1000 / MAX_RANGE_MM) * SENSOR_Y;
+        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+          
+          {/* FOV Cone */}
+          <polygon points={fovPoints} fill="#58a6ff" opacity="0.06" />
+
+          {/* Grid lines */}
+          {[1000, 2000, 3000, 4000].map(x => (
+            <line key={`v-${x}`} x1={mapX(x)} y1={0} x2={mapX(x)} y2={SVG_H} stroke="#21262d" strokeWidth="1" />
+          ))}
+          {[1000, 2000, 3000, 4000].map(y => (
+            <line key={`h-${y}`} x1={0} y1={mapY(y)} x2={SVG_W} y2={mapY(y)} stroke="#21262d" strokeWidth="1" />
+          ))}
+
+          {/* Distance Arcs and Gate Labels */}
+          {gates.map(g => {
+            const dist = g * 750;
+            const rx = mapX(dist) - mapX(0); 
+            const ry = SVG_H - mapY(dist);
+            
             return (
-              <circle
-                key={m}
-                cx={CENTER_X}
-                cy={SENSOR_Y}
-                r={r}
-                fill="none"
-                stroke="#1e293b"
-                strokeWidth="1"
-                strokeDasharray={m % 2 === 0 ? "none" : "4 4"}
-              />
+              <g key={`gate-${g}`}>
+                <ellipse
+                  cx={0}
+                  cy={SVG_H}
+                  rx={rx}
+                  ry={ry}
+                  fill="none"
+                  stroke="#21262d"
+                  strokeWidth="1"
+                />
+                {/* Gate Label at 45 deg */}
+                {dist < Math.sqrt(ROOM_WIDTH_MM*ROOM_WIDTH_MM + ROOM_DEPTH_MM*ROOM_DEPTH_MM) && (
+                  <text 
+                    x={rx * Math.cos(45 * Math.PI / 180)} 
+                    y={SVG_H - ry * Math.sin(45 * Math.PI / 180)} 
+                    fill="#484f58" 
+                    fontSize="10"
+                    textAnchor="middle"
+                  >
+                    G{g}
+                  </text>
+                )}
+              </g>
             );
           })}
 
-          {/* Angle lines (-45deg, 0deg, +45deg) */}
-          <line x1={CENTER_X} y1={SENSOR_Y} x2={CENTER_X} y2={0} stroke="#1e293b" strokeWidth="1" strokeDasharray="4 4" />
-          <line x1={CENTER_X} y1={SENSOR_Y} x2={0} y2={SENSOR_Y - CENTER_X} stroke="#1e293b" strokeWidth="1" strokeDasharray="4 4" />
-          <line x1={CENTER_X} y1={SENSOR_Y} x2={RADAR_SIZE} y2={SENSOR_Y - CENTER_X} stroke="#1e293b" strokeWidth="1" strokeDasharray="4 4" />
-
-          {/* Sensor indicator */}
-          <path d={`M ${CENTER_X-10} ${SENSOR_Y} L ${CENTER_X} ${SENSOR_Y-15} L ${CENTER_X+10} ${SENSOR_Y} Z`} fill="#3b82f6" />
+          {/* X/Y Axis Labels (1000, 2000, etc) */}
+          {[1000, 2000, 3000, 4000].map(x => (
+             <text key={`lx-${x}`} x={mapX(x)} y={SVG_H - 4} fill="#e6edf3" fontSize="10" textAnchor="middle">{x}</text>
+          ))}
+          {[1000, 2000, 3000, 4000].map(y => (
+             <text key={`ly-${y}`} x={12} y={mapY(y)} fill="#e6edf3" fontSize="10" alignmentBaseline="middle" textAnchor="middle">{y}</text>
+          ))}
+          <text x={8} y={SVG_H - 4} fill="#e6edf3" fontSize="10" textAnchor="middle">0</text>
         </svg>
-
-        {/* Sweeping radar effect */}
-        <div className="radar-sweep" style={{
-          position: 'absolute',
-          bottom: 0,
-          left: '50%',
-          width: RADAR_SIZE,
-          height: RADAR_SIZE,
-          background: 'conic-gradient(from 270deg at 0% 100%, rgba(16, 185, 129, 0) 0deg, rgba(16, 185, 129, 0.1) 60deg, rgba(16, 185, 129, 0.8) 90deg)',
-          transformOrigin: '0% 100%',
-          animation: 'radar-sweep 4s infinite linear'
-        }} />
 
         {/* Targets */}
         {targets.map((t, idx) => {
-          // If the hardware sent a string instead of a JSON object for the target, parse it!
           let targetData = t;
           if (typeof t === 'string') {
-            try {
-              targetData = JSON.parse(t);
-            } catch(e) {}
+            try { targetData = JSON.parse(t); } catch(e) {}
           }
 
           const xVal = typeof targetData.x === 'number' ? targetData.x : parseFloat(targetData.x) || 0;
           const yVal = typeof targetData.y === 'number' ? targetData.y : parseFloat(targetData.y) || 0;
-          const px = mapCoord(xVal, false);
-          const py = mapCoord(yVal, true);
+          
+          // CSS percentage coordinates
+          const leftPct = (xVal / ROOM_WIDTH_MM) * 100;
+          const topPct = (1 - (yVal / ROOM_DEPTH_MM)) * 100;
+          
           const color = getTargetColor(targetData.alarm);
           const speed = typeof targetData.speed === 'number' ? targetData.speed : parseFloat(targetData.speed) || 0;
           
           return (
             <div
-              key={targetData.id || idx}
+              key={targetData.id ?? idx}
               style={{
                 position: 'absolute',
-                left: `${px}px`,
-                top: `${py}px`,
-                width: '16px',
-                height: '16px',
+                left: `${Math.max(0, Math.min(100, leftPct))}%`,
+                top: `${Math.max(0, Math.min(100, topPct))}%`,
+                width: '12px',
+                height: '12px',
                 backgroundColor: color,
                 borderRadius: '50%',
                 transform: 'translate(-50%, -50%)',
-                boxShadow: `0 0 10px ${color}, 0 0 20px ${color}`,
-                border: '2px solid white',
+                boxShadow: `0 0 8px ${color}`,
                 transition: 'all 0.3s ease-out',
-                zIndex: 9999
+                zIndex: 10,
+                display: (xVal > ROOM_WIDTH_MM || yVal > ROOM_DEPTH_MM || xVal < 0 || yVal < 0) ? 'none' : 'block'
               }}
             >
               {/* Target Details */}
               <div style={{
                 position: 'absolute',
-                top: '20px',
+                top: '16px',
                 left: '50%',
                 transform: 'translateX(-50%)',
-                background: 'rgba(0,0,0,0.8)',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                fontSize: '10px',
-                color: 'white',
+                color: color,
+                fontSize: '11px',
+                fontWeight: '600',
                 whiteSpace: 'nowrap',
-                border: `1px solid ${color}`
+                pointerEvents: 'none'
               }}>
-                ID: {targetData.id || '?'} | {(speed / 100).toFixed(1)} m/s
+                T{targetData.id ?? '0'}
+                <br/>
+                {speed}mm/s
               </div>
             </div>
           );
         })}
+        
+        {/* Sensor marker icon */}
+        <div style={{
+          position: 'absolute',
+          bottom: '0',
+          left: '0',
+          width: '8px',
+          height: '8px',
+          background: '#f0883e',
+          clipPath: 'polygon(0 100%, 100% 100%, 0 0)'
+        }}></div>
+
+        {/* Sensor details overlay */}
+        <div style={{
+          position: 'absolute',
+          bottom: '8px',
+          left: '12px',
+          color: '#f0883e',
+          fontSize: '10px',
+          lineHeight: '1.2',
+          pointerEvents: 'none'
+        }}>
+          Sensor<br/>
+          1800mm<br/>
+          45°
+        </div>
       </div>
 
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes radar-sweep {
-          0% { transform: rotate(-90deg); }
-          100% { transform: rotate(90deg); }
-        }
-        @keyframes radar-ping {
-          75%, 100% {
-            transform: scale(2.5);
-            opacity: 0;
-          }
-        }
-        .spin-animation-slow {
-          animation: spin 3s linear infinite;
-        }
-      `}} />
+      <div style={{ color: '#e6edf3', fontSize: '11px', marginTop: '2px' }}>
+        Room X (mm)
+      </div>
     </div>
   );
 }
