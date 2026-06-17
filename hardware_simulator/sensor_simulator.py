@@ -64,6 +64,81 @@ def create_signed_payload(payload):
     return payload
 
 
+class FallSimulator:
+    def __init__(self):
+        self.state = 0 # 0: NORMAL, 1: FREEFALL, 2: IMPACT, 3: CONFIRMED, 4: RECOVERY
+        self.x = 280.0
+        self.y = 1920.0
+        self.z = 2180.0
+        self.speed = 0.0
+        self.alarm_state = 0
+        self.state_ticks = 0
+
+    def tick(self):
+        self.state_ticks += 1
+        
+        if self.state == 0: # PHASE_NORMAL
+            self.alarm_state = 0
+            self.x += random.uniform(-10, 10)
+            self.y += random.uniform(-10, 10)
+            self.z = 2180.0 + random.uniform(-20, 20)
+            self.speed = random.uniform(50, 150)
+            
+            # Trigger fall every ~10-15 seconds (25 ticks = 1 sec)
+            if random.random() < 0.0025:
+                self.state = 1
+                self.state_ticks = 0
+                
+        elif self.state == 1: # PHASE_FREEFALL
+            self.alarm_state = 1
+            self.z -= 100.0 # Rapid drop
+            self.speed = random.uniform(600, 1200) # Massive kinetic spike
+            
+            if self.z <= 200:
+                self.z = 200
+                self.state = 2 # Impact
+                self.state_ticks = 0
+                
+        elif self.state == 2: # PHASE_IMPACT
+            self.alarm_state = 1
+            self.speed = random.uniform(0, 100) # Dead stop, < 150mm/s
+            self.z = 200
+            
+            if self.state_ticks >= 25: # POST_FALL_STILL_MS (1000ms)
+                self.state = 3 # Confirmed Fall
+                self.state_ticks = 0
+                
+        elif self.state == 3: # PHASE_CONFIRMED
+            self.alarm_state = 2
+            self.speed = random.uniform(0, 50)
+            self.z = 200
+            
+            if self.state_ticks >= 125: # Stay down for 5 seconds
+                self.state = 4 # Recovery
+                self.state_ticks = 0
+                
+        elif self.state == 4: # RECOVERY
+            self.alarm_state = 0
+            self.z += 40.0 # Climbing up
+            self.speed = random.uniform(200, 400)
+            
+            if self.z >= 2180:
+                self.z = 2180
+                self.state = 0
+                self.state_ticks = 0
+                
+        self.x = max(-5000, min(5000, self.x))
+        self.y = max(-5000, min(5000, self.y))
+        
+        return {
+            "id": 1,
+            "alarm": self.alarm_state,
+            "speed": round(self.speed),
+            "x": round(self.x),
+            "y": round(self.y),
+            "z": round(self.z)
+        }
+
 async def receive_messages(websocket):
     try:
         async for message in websocket:
@@ -80,10 +155,8 @@ async def simulate_sensor():
         async with websockets.connect(uri) as websocket:
             print("Connected successfully!\n")
             
-            # Start background task to read messages from the server
             asyncio.create_task(receive_messages(websocket))
             
-            # --- 1. SEND REGISTER_GATEWAY ---
             print("-> Sending REGISTER_GATEWAY message...")
             register_msg = {
                 "type": "REGISTER_GATEWAY",
@@ -96,48 +169,30 @@ async def simulate_sensor():
             await websocket.send(json.dumps(register_msg))
             print("REGISTER_GATEWAY message sent.\n")
             
-            # Allow some time for the server to process registration
             await asyncio.sleep(2)
             
-            # --- 2. SEND TELEMETRY_STREAM ---
-            print("-> Starting telemetry stream simulation...")
+            print("-> Starting telemetry stream simulation (25 Hz FSM)...")
             
-            # Initial position
-            x, y, z = 280, 1920, 2180
+            sim = FallSimulator()
+            last_print = 0
             
             while True:
-                # Random walk logic to simulate a person moving
-                x += random.randint(-150, 150)
-                y += random.randint(-150, 150)
-                z += random.randint(-50, 50)
-                
-                # Keep values within some reasonable bounds if desired, or just let them wander
-                x = max(-5000, min(5000, x))
-                y = max(-5000, min(5000, y))
-                z = max(0, min(3000, z))
+                target = sim.tick()
 
                 telemetry_msg = {
                     "type": "TELEMETRY_STREAM",
                     "gatewayId": GATEWAY_ID,
                     "systemId": SYSTEM_ID,
-                    "targets": [
-                        {
-                            "id": 1,
-                            "alarm": 2,
-                            "speed": random.randint(300, 600), # Adding a bit of random speed variation too
-                            "x": x,
-                            "y": y,
-                            "z": z
-                        }
-                    ]
+                    "targets": [target]
                 }
                 telemetry_msg = create_signed_payload(telemetry_msg)
                 
-                print(f"Sending telemetry: {telemetry_msg['timestamp']}")
+                print(f"[{telemetry_msg['timestamp']}] Telemetry [State: {sim.state}] Z: {target['z']}mm | Spd: {target['speed']}mm/s | Alarm: {target['alarm']}")
+
                 await websocket.send(json.dumps(telemetry_msg))
                 
-                # Wait before sending the next telemetry reading
-                await asyncio.sleep(5)
+                # 40ms telemetry window matching real hardware (25 FPS)
+                await asyncio.sleep(0.04)
                 
     except Exception as e:
         print(f"WebSocket Error: {e}")

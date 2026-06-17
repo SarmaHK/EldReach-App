@@ -7,13 +7,13 @@ import Doorway from './Doorway';
 
 // ─── Status → fill color ───────────────────────────────────────────────────────
 const NODE_COLORS = {
-  UNBOUND:      '#475569', // grey
-  CONNECTED:    '#10b981', // green
-  CONNECTING:   '#f59e0b', // amber
-  INACTIVE:     '#f59e0b', // amber
-  NO_HUB:       '#f59e0b', // amber
-  ALERT:        '#ef4444', // red
-  DISCONNECTED: '#475569', // grey (same as unbound but dimmer)
+  UNBOUND:      '#0ea5e9', // Vibrant Sky Blue for Unbound
+  CONNECTED:    '#10b981', // Emerald
+  CONNECTING:   '#f59e0b', // Amber
+  INACTIVE:     '#f59e0b', // Amber
+  NO_HUB:       '#f59e0b', // Amber
+  ALERT:        '#ef4444', // Rose/Red
+  DISCONNECTED: '#64748b', // Slate for offline
 };
 
 const getNodeColor = (status) => NODE_COLORS[status] ?? '#475569';
@@ -43,6 +43,7 @@ const Canvas = ({ theme }) => {
   const globalGatewayId  = useStore(s => s.globalGatewayId);
   const monitoringState  = useStore(s => s.monitoringState);
   const liveRadarTargets = useStore(s => s.liveRadarTargets); // Added subscription for real-time targets
+  const deleteItems      = useStore(s => s.deleteItems); // For deleting nodes directly on canvas
 
   // Gateway outer ring color reflects worst room status
   const gatewayColor = useMemo(() => {
@@ -205,7 +206,7 @@ const Canvas = ({ theme }) => {
               // Short label: last 4 chars of device ID, or "Unbound"
               const label = node.assignedDeviceId
                 ? node.assignedDeviceId.slice(-5)
-                : node.status === 'DISCONNECTED' ? 'Offline' : 'Unbound';
+                : node.status === 'DISCONNECTED' ? 'Offline' : 'Radar Sensor';
 
               // Real-time data from monitoring state
               const roomData = node.logicalRoomId ? monitoringState[node.logicalRoomId] : null;
@@ -312,12 +313,34 @@ const Canvas = ({ theme }) => {
                     {/* Label below node */}
                     <Text
                       text={label}
-                      y={16} x={-28} width={56}
+                      y={20} x={-40} width={80}
                       align="center"
-                      fill={node.status === 'UNBOUND' ? '#94A3B8' : (theme === 'dark' ? '#F8FAFC' : '#1E293B')}
-                      fontSize={10}
-                      fontFamily="monospace"
+                      fill={node.status === 'UNBOUND' ? '#38bdf8' : (theme === 'dark' ? '#F8FAFC' : '#1E293B')}
+                      fontSize={11}
+                      fontFamily="system-ui, -apple-system, sans-serif"
+                      fontWeight={node.status === 'UNBOUND' ? '600' : '500'}
                     />
+                    
+                    {/* Floating Delete Button (Visible only when selected in EDIT mode) */}
+                    {isSelected && designerState === 'EDIT' && (
+                      <Group
+                        x={20} y={-20}
+                        onClick={e => { e.cancelBubble = true; deleteItems([node.id]); }}
+                        onTap={e => { e.cancelBubble = true; deleteItems([node.id]); }}
+                        onMouseEnter={e => {
+                          const container = e.target.getStage().container();
+                          container.style.cursor = 'pointer';
+                        }}
+                        onMouseLeave={e => {
+                          const container = e.target.getStage().container();
+                          container.style.cursor = 'default';
+                        }}
+                      >
+                        <Circle radius={10} fill="#ef4444" shadowColor="rgba(239, 68, 68, 0.4)" shadowBlur={6} shadowOffsetY={2} />
+                        <Line points={[-4, -4, 4, 4]} stroke="#ffffff" strokeWidth={2.5} lineCap="round" />
+                        <Line points={[4, -4, -4, 4]} stroke="#ffffff" strokeWidth={2.5} lineCap="round" />
+                      </Group>
+                    )}
                   </Group>
                 </Group>
               );

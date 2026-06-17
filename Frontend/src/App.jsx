@@ -14,7 +14,8 @@ import { useBackendSync } from './hooks/useBackendSync';
 import './index.css';
 
 function App() {
-  const [activePage, setActivePage] = useState('designer'); // 'designer' | 'dashboard'
+  const activePage = useStore(s => s.activePage);
+  const setActivePage = useStore(s => s.setActivePage);
   const [theme, setTheme] = useState('light');
 
   // Apply theme to document

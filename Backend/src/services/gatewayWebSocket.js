@@ -297,6 +297,9 @@ const handleSensorVerified = (message) => {
   }
 };
 
+const lastSaveTimes = {};
+const lastLogTimes = {};
+
 /**
  * Handle TELEMETRY_STREAM from gateway.
  */
@@ -304,10 +307,21 @@ const handleTelemetryStream = async (message, registeredGatewayId) => {
   const gatewayId = message.gatewayId || registeredGatewayId;
   if (!gatewayId) return;
 
-  // Log to terminal so user can see it arrived
-  console.log(`[GatewayWS] TELEMETRY_STREAM received from ${gatewayId} with ${message.targets ? message.targets.length : 0} targets`);
+  const now = Date.now();
+  if (!lastLogTimes[gatewayId] || now - lastLogTimes[gatewayId] > 1000) {
+    lastLogTimes[gatewayId] = now;
+    console.log(`[GatewayWS] TELEMETRY_STREAM received from ${gatewayId} with ${message.targets ? message.targets.length : 0} targets`);
+  }
 
   // Normalize targets: Real IoT hardware might send stringified JSON objects
+  if (typeof message.targets === 'string') {
+    try {
+      message.targets = JSON.parse(message.targets);
+    } catch (e) {
+      console.warn('[GatewayWS] Could not parse message.targets string');
+    }
+  }
+
   if (message.targets && Array.isArray(message.targets)) {
     message.targets = message.targets.map(t => {
       if (typeof t === 'string') {
@@ -324,57 +338,79 @@ const handleTelemetryStream = async (message, registeredGatewayId) => {
   // Update lastSeen
   await gatewayManager.handleHeartbeat(gatewayId);
 
-  // Save Telemetry Stream to the database
-  try {
-    await TelemetryLog.create({
-      gatewayId: gatewayId,
-      systemId: message.systemId,
-      targets: message.targets || [],
-      type: message.type || 'TELEMETRY_STREAM',
-      signature: message.signature,
-      timestamp: message.timestamp ? new Date(message.timestamp) : new Date(),
-    });
-  } catch (err) {
-    console.error('[GatewayWS] Failed to save telemetry stream:', err);
-  }
-
-  // Broadcast to frontend
+  // 1. Unconditionally broadcast to frontend immediately (Zero Delay)
   const io = socketService.getIO();
   if (io) {
     io.emit('gateway:telemetry', message);
   }
 
-  // Handle Alarms (generate Alerts if needed)
+  // 2. Handle Alarms
+  let hasImportantAlert = false;
   if (message.targets && Array.isArray(message.targets)) {
     for (const target of message.targets) {
       if (target.alarm > 0) {
-        // Generate an alert
+        hasImportantAlert = true;
+        
         const alertType = target.alarm === 1 ? 'Warning' : 'Critical';
         const alertMessage = target.alarm === 1 ? 'Movement Velocity Warning detected' : 'Critical Warning detected';
         
         try {
-          const newAlert = await Alert.create({
+          const recentAlert = await Alert.findOne({
             deviceId: gatewayId,
             type: alertType,
-            message: alertMessage,
             status: 'active'
-          });
+          }).sort({ createdAt: -1 });
           
-          if (io) {
-            io.emit('alert:new', {
-              _id: newAlert._id,
-              deviceId: newAlert.deviceId,
-              type: newAlert.type,
-              message: newAlert.message,
-              createdAt: newAlert.createdAt,
-              status: newAlert.status
+          let shouldCreateAlert = true;
+          if (recentAlert) {
+            const timeSinceLastAlert = Date.now() - new Date(recentAlert.createdAt).getTime();
+            if (timeSinceLastAlert < 60000) { 
+              shouldCreateAlert = false;
+            }
+          }
+
+          if (shouldCreateAlert) {
+            const newAlert = await Alert.create({
+              deviceId: gatewayId,
+              type: alertType,
+              message: alertMessage,
+              status: 'active'
             });
+            
+            if (io) {
+              io.emit('alert:new', {
+                _id: newAlert._id,
+                deviceId: newAlert.deviceId,
+                type: newAlert.type,
+                message: newAlert.message,
+                createdAt: newAlert.createdAt,
+                status: newAlert.status
+              });
+            }
           }
         } catch (err) {
           console.error('[GatewayWS] Failed to save alert:', err);
         }
       }
     }
+  }
+
+  // 3. Store Telemetry Stream to the database (Throttled & Non-blocking)
+  // We only save to MongoDB once per second to prevent event loop lag and DB crashes.
+  if (!lastSaveTimes[gatewayId] || now - lastSaveTimes[gatewayId] >= 1000) {
+    lastSaveTimes[gatewayId] = now;
+    
+    // Fire-and-forget: Do NOT await this so the UI stream isn't blocked!
+    TelemetryLog.create({
+      gatewayId: gatewayId,
+      systemId: message.systemId,
+      targets: message.targets || [],
+      type: message.type || 'TELEMETRY_STREAM',
+      signature: message.signature,
+      timestamp: message.timestamp ? new Date(message.timestamp) : new Date(),
+    }).catch(err => {
+      console.error('[GatewayWS] Background DB save failed:', err);
+    });
   }
 };
 

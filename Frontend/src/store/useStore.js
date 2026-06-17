@@ -34,7 +34,7 @@ import { getDevices } from '../services/deviceService';
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
-const PERSIST_KEY = 'eldreach_v4'; // bumped to v4 — clears stale mock/simulation data
+const PERSIST_KEY = 'eldreach_v5'; // bumped to v5 - clears stale state from spam clicks
 
 function loadPersistedState() {
   try {
@@ -165,6 +165,8 @@ const useStore = create((set, get) => ({
   gatewayStats:    { lastSyncTime: null, packetsReceived: 0 },
 
   // ── UI state ───────────────────────────────────────────────────────────────
+  activePage:      'designer',
+  setActivePage:   (page) => set({ activePage: page }),
   selectedIds:     [],
   lockedIds:       [],
   designerState:   'EDIT',
@@ -727,10 +729,7 @@ const useStore = create((set, get) => ({
   // RoomDeviceAssignment.jsx calls bindDeviceToNode() directly.
 
   // ── Gateway/Hub state ────────────────────────────────────────────────────
-  connectedGateway: null,
-  gatewayScanning: false,
-  gatewayScanError: null,
-  gatewayScanMessage: null,
+  // (Removed duplicate gateway keys)
   
   // ── Live Radar state ──────────────────────────────────────────────────────
   liveRadarTargets: [],

@@ -83,9 +83,9 @@ export function useBackendSync() {
     });
 
     socket.on('gateway:telemetry', (payload) => {
-      if (payload.targets && Array.isArray(payload.targets)) {
-        useStore.setState({ liveRadarTargets: payload.targets });
-      }
+      useStore.setState({ 
+        liveRadarTargets: Array.isArray(payload.targets) ? payload.targets : [] 
+      });
     });
 
     // Listen for device removal broadcasts
