@@ -5,6 +5,7 @@ const gatewayManager = require('./gatewayManager');
 const securityLogger = require('./logger');
 const socketService = require('./socketService');
 const Alert = require('../models/Alert');
+const TelemetryLog = require('../models/TelemetryLog');
 
 /**
  * Gateway WebSocket Server
@@ -322,6 +323,20 @@ const handleTelemetryStream = async (message, registeredGatewayId) => {
 
   // Update lastSeen
   await gatewayManager.handleHeartbeat(gatewayId);
+
+  // Save Telemetry Stream to the database
+  try {
+    await TelemetryLog.create({
+      gatewayId: gatewayId,
+      systemId: message.systemId,
+      targets: message.targets || [],
+      type: message.type || 'TELEMETRY_STREAM',
+      signature: message.signature,
+      timestamp: message.timestamp ? new Date(message.timestamp) : new Date(),
+    });
+  } catch (err) {
+    console.error('[GatewayWS] Failed to save telemetry stream:', err);
+  }
 
   // Broadcast to frontend
   const io = socketService.getIO();

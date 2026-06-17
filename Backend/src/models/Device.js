@@ -3,10 +3,14 @@ const mongoose = require('mongoose');
 // Sub-schema for individual radar targets
 const radarTargetSchema = new mongoose.Schema(
   {
+    id: { type: Number },
     x: { type: Number },
     y: { type: Number },
+    z: { type: Number },
+    speed: { type: Number },
     velocity: { type: Number },
     distance: { type: Number },
+    alarm: { type: Number },
   },
   { _id: false }
 );
